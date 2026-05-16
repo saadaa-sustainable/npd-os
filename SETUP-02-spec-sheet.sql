@@ -17,8 +17,20 @@ alter table public.styles
   add column if not exists front_image_url     text,
   add column if not exists back_image_url      text,
   add column if not exists ref_image_urls      text[] default '{}',
-  add column if not exists sizes               jsonb default '[]'::jsonb;
+  add column if not exists sizes               jsonb default '[]'::jsonb,
   -- sizes shape: [{"label":"XS","code":"28"}, {"label":"S","code":"30"}, ...]
+
+  -- Specification Sheet (Tab 2) ──────────────────────────────────
+  add column if not exists construction_rows   jsonb default '[]'::jsonb,
+  -- [{component, description}, ...]
+  add column if not exists spi                 jsonb default '{}'::jsonb,
+  -- {seams: "24 - 26", stitches: "26 - 28"}
+  add column if not exists label_placement     jsonb default '{}'::jsonb,
+  -- {main, size, washcare, vendor_code}  (each a description string)
+  add column if not exists fabric_specs        jsonb default '{}'::jsonb,
+  -- {fabric, fabric_note, preferred_mill, gsm, dye}
+  add column if not exists trim_rows           jsonb default '[]'::jsonb;
+  -- [{component, type, supplier, code, size, color, quantity}, ...]
 
 
 -- ── BLOCK 2: style_measurements TABLE ───────────────────────────
@@ -100,7 +112,8 @@ where table_schema = 'public' and table_name = 'styles'
   and column_name in (
     'product_description','product_attribute','fabrication','trimmings',
     'washcare','base_size','style_tag',
-    'front_image_url','back_image_url','ref_image_urls','sizes'
+    'front_image_url','back_image_url','ref_image_urls','sizes',
+    'construction_rows','spi','label_placement','fabric_specs','trim_rows'
   )
 order by column_name;
 

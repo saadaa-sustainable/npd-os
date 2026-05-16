@@ -34,6 +34,12 @@ const EMPTY_FORM = {
   trimmings: '', washcare: '', base_size: '', style_tag: '',
   front_image_url: '', back_image_url: '',
   ref_image_urls: [],
+  // spec sheet (Tab 2)
+  construction_rows: [],   // [{component, description}]
+  spi: { seams: '', stitches: '' },
+  label_placement: { main: '', size: '', washcare: '', vendor_code: '' },
+  fabric_specs: { fabric: '', fabric_note: '', preferred_mill: '', gsm: '', dye: '' },
+  trim_rows: [],           // [{component, type, supplier, code, size, color, quantity}]
 }
 
 function NewStyleInner() {
@@ -65,6 +71,11 @@ function NewStyleInner() {
         washcare: s.washcare || '', base_size: s.base_size || '', style_tag: s.style_tag || '',
         front_image_url: s.front_image_url || '', back_image_url: s.back_image_url || '',
         ref_image_urls: Array.isArray(s.ref_image_urls) ? s.ref_image_urls : [],
+        construction_rows: Array.isArray(s.construction_rows) ? s.construction_rows : [],
+        spi:              s.spi             && typeof s.spi             === 'object' ? s.spi             : { seams: '', stitches: '' },
+        label_placement:  s.label_placement && typeof s.label_placement === 'object' ? s.label_placement : { main: '', size: '', washcare: '', vendor_code: '' },
+        fabric_specs:     s.fabric_specs    && typeof s.fabric_specs    === 'object' ? s.fabric_specs    : { fabric: '', fabric_note: '', preferred_mill: '', gsm: '', dye: '' },
+        trim_rows:        Array.isArray(s.trim_rows) ? s.trim_rows : [],
       })
       if (Array.isArray(s.sizes) && s.sizes.length) setSizes(s.sizes)
       const m = await getMeasurements(editId)
@@ -107,6 +118,22 @@ function NewStyleInner() {
     else values[sizeLabel] = v
     return { ...x, values }
   }))
+
+  // ── generic list helpers (construction_rows, trim_rows) ─────
+  const listSet = (key, fn) => setForm(f => ({ ...f, [key]: fn(f[key]) }))
+  const addItem    = (key, init)   => listSet(key, arr => [...arr, init])
+  const removeItem = (key, i)      => listSet(key, arr => arr.filter((_, idx) => idx !== i))
+  const moveItem   = (key, i, dir) => listSet(key, arr => {
+    const j = i + dir
+    if (j < 0 || j >= arr.length) return arr
+    const copy = arr.slice()
+    ;[copy[i], copy[j]] = [copy[j], copy[i]]
+    return copy
+  })
+  const setItemField = (key, i, k, v) => listSet(key, arr => arr.map((x, idx) => idx === i ? { ...x, [k]: v } : x))
+
+  // ── nested object setters (spi, label_placement, fabric_specs) ─
+  const setNested = (key, subKey, v) => setForm(f => ({ ...f, [key]: { ...f[key], [subKey]: v } }))
 
   const handleSubmit = async e => {
     e.preventDefault()
@@ -367,6 +394,148 @@ function NewStyleInner() {
                   <div className="form-hint" style={{ marginTop: 6 }}>Values are in inches. Leave a cell blank if the measurement doesn’t apply to that size.</div>
                 </div>
 
+                {/* ── Specification Sheet — Construction ─────── */}
+                <div className="form-section-head">Construction</div>
+
+                <div className="form-full" style={tableWrap}>
+                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '6px 4px' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, width: 30 }}>#</th>
+                        <th style={{ ...thStyle, width: 220 }}>Component</th>
+                        <th style={thStyle}>Description</th>
+                        <th style={{ ...thStyle, width: 70 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {form.construction_rows.length === 0 && (
+                        <tr><td colSpan={4} style={emptyCell}>No components yet — click <em>+ Add component</em> below.</td></tr>
+                      )}
+                      {form.construction_rows.map((r, i) => (
+                        <tr key={i}>
+                          <td style={rowNum}>{i + 1}</td>
+                          <td><input className="form-input" style={tdInput} value={r.component || ''} onChange={e => setItemField('construction_rows', i, 'component', e.target.value)} placeholder="e.g. Shoulder Finishing" /></td>
+                          <td><input className="form-input" style={tdInput} value={r.description || ''} onChange={e => setItemField('construction_rows', i, 'description', e.target.value)} placeholder="e.g. Front & Back bodies stitched together with French Seam" /></td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => moveItem('construction_rows', i, -1)} title="Move up">↑</button>
+                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => moveItem('construction_rows', i,  1)} title="Move down" style={{ marginLeft: 2 }}>↓</button>
+                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => removeItem('construction_rows', i)} title="Remove row" style={{ marginLeft: 2 }}>✕</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => addItem('construction_rows', { component: '', description: '' })}>+ Add component</button>
+                </div>
+
+                {/* ── SPI (Stitch Per Inch) ──────────────────── */}
+                <div className="form-section-head">SPI — Stitch Per Inch</div>
+
+                <div className="form-group">
+                  <label className="form-label">All Seams</label>
+                  <input className="form-input" value={form.spi.seams} onChange={e => setNested('spi', 'seams', e.target.value)} placeholder="e.g. 24 – 26" />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">All Stitches</label>
+                  <input className="form-input" value={form.spi.stitches} onChange={e => setNested('spi', 'stitches', e.target.value)} placeholder="e.g. 26 – 28" />
+                </div>
+
+                {/* ── Label Placement ────────────────────────── */}
+                <div className="form-section-head">Label Placement</div>
+
+                <div className="form-group form-full">
+                  <label className="form-label">Main Label</label>
+                  <input className="form-input" value={form.label_placement.main} onChange={e => setNested('label_placement', 'main', e.target.value)} placeholder="e.g. Center back of the dress, stitched within back neck collar" />
+                </div>
+
+                <div className="form-group form-full">
+                  <label className="form-label">Size Label</label>
+                  <input className="form-input" value={form.label_placement.size} onChange={e => setNested('label_placement', 'size', e.target.value)} placeholder="e.g. Printed on the main label itself" />
+                </div>
+
+                <div className="form-group form-full">
+                  <label className="form-label">Washcare Label</label>
+                  <input className="form-input" value={form.label_placement.washcare} onChange={e => setNested('label_placement', 'washcare', e.target.value)} placeholder="e.g. Left side of dress bodice, 3 inches below from pocket" />
+                </div>
+
+                <div className="form-group form-full">
+                  <label className="form-label">Vendor Code Label</label>
+                  <input className="form-input" value={form.label_placement.vendor_code} onChange={e => setNested('label_placement', 'vendor_code', e.target.value)} placeholder="e.g. Left side of dress bodice with washcare label" />
+                </div>
+
+                {/* ── Fabric Specifications ──────────────────── */}
+                <div className="form-section-head">Fabric Specifications</div>
+
+                <div className="form-group">
+                  <label className="form-label">Fabric</label>
+                  <input className="form-input" value={form.fabric_specs.fabric} onChange={e => setNested('fabric_specs', 'fabric', e.target.value)} placeholder="e.g. Cotton Flax 80 / 20" />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Color Fastness Note</label>
+                  <input className="form-input" value={form.fabric_specs.fabric_note} onChange={e => setNested('fabric_specs', 'fabric_note', e.target.value)} placeholder="e.g. Rubbing / washing / precipitation – 4/5" />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Preferred Mill</label>
+                  <input className="form-input" value={form.fabric_specs.preferred_mill} onChange={e => setNested('fabric_specs', 'preferred_mill', e.target.value)} placeholder="e.g. Malika Arjun (Tamil Nadu)" />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">GSM</label>
+                  <input className="form-input" value={form.fabric_specs.gsm} onChange={e => setNested('fabric_specs', 'gsm', e.target.value)} placeholder="e.g. 140" />
+                </div>
+
+                <div className="form-group form-full">
+                  <label className="form-label">Dye Treatment</label>
+                  <input className="form-input" value={form.fabric_specs.dye} onChange={e => setNested('fabric_specs', 'dye', e.target.value)} placeholder="e.g. Mercerized at 16 – 32 °C" />
+                </div>
+
+                {/* ── Trim Specifications ────────────────────── */}
+                <div className="form-section-head">Trim Specifications</div>
+
+                <div className="form-full" style={tableWrap}>
+                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '6px 4px', minWidth: 900 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, width: 30 }}>#</th>
+                        <th style={thStyle}>Component</th>
+                        <th style={thStyle}>Trim Type</th>
+                        <th style={thStyle}>Supplier</th>
+                        <th style={{ ...thStyle, width: 100 }}>Code</th>
+                        <th style={{ ...thStyle, width: 100 }}>Size</th>
+                        <th style={{ ...thStyle, width: 90 }}>Color</th>
+                        <th style={{ ...thStyle, width: 80 }}>Qty</th>
+                        <th style={{ ...thStyle, width: 70 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {form.trim_rows.length === 0 && (
+                        <tr><td colSpan={9} style={emptyCell}>No trims yet — click <em>+ Add trim</em> below.</td></tr>
+                      )}
+                      {form.trim_rows.map((r, i) => (
+                        <tr key={i}>
+                          <td style={rowNum}>{i + 1}</td>
+                          <td><input className="form-input" style={tdInput} value={r.component || ''} onChange={e => setItemField('trim_rows', i, 'component', e.target.value)} placeholder="e.g. Buttons" /></td>
+                          <td><input className="form-input" style={tdInput} value={r.type      || ''} onChange={e => setItemField('trim_rows', i, 'type',      e.target.value)} placeholder="e.g. 4 Hole Chalk Button" /></td>
+                          <td><input className="form-input" style={tdInput} value={r.supplier  || ''} onChange={e => setItemField('trim_rows', i, 'supplier',  e.target.value)} placeholder="e.g. Goyal Lining House" /></td>
+                          <td><input className="form-input" style={tdInput} value={r.code      || ''} onChange={e => setItemField('trim_rows', i, 'code',      e.target.value)} placeholder="—" /></td>
+                          <td><input className="form-input" style={tdInput} value={r.size      || ''} onChange={e => setItemField('trim_rows', i, 'size',      e.target.value)} placeholder="e.g. 16 L" /></td>
+                          <td><input className="form-input" style={tdInput} value={r.color     || ''} onChange={e => setItemField('trim_rows', i, 'color',     e.target.value)} placeholder="e.g. RAW" /></td>
+                          <td><input className="form-input" style={{ ...tdInput, textAlign: 'center' }} value={r.quantity || ''} onChange={e => setItemField('trim_rows', i, 'quantity', e.target.value)} placeholder="—" /></td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => moveItem('trim_rows', i, -1)} title="Move up">↑</button>
+                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => moveItem('trim_rows', i,  1)} title="Move down" style={{ marginLeft: 2 }}>↓</button>
+                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => removeItem('trim_rows', i)} title="Remove row" style={{ marginLeft: 2 }}>✕</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => addItem('trim_rows', { component: '', type: '', supplier: '', code: '', size: '', color: '', quantity: '' })}>+ Add trim</button>
+                </div>
+
                 {/* ── Design + Submission ──────────────────────── */}
                 <div className="form-section-head">Design Details</div>
 
@@ -426,6 +595,19 @@ const thStyle = {
 }
 
 const tdInput = { padding: '6px 8px', fontSize: 13 }
+
+const tableWrap = {
+  overflowX: 'auto',
+  border: '1px solid var(--border-dim)',
+  borderRadius: 8,
+  padding: 12,
+}
+
+const rowNum = { color: 'var(--t3)', fontSize: 12, textAlign: 'center' }
+
+const emptyCell = {
+  textAlign: 'center', color: 'var(--t3)', padding: '20px 0', fontSize: 13,
+}
 
 function ImageField({ side, url, file, onFile, onClearUrl }) {
   const preview = file ? URL.createObjectURL(file) : url
