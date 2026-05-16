@@ -28,11 +28,12 @@ const EMPTY_FORM = {
   // existing
   name: '', style_code: '', priority: '', gender: '', category: '',
   fabric_platform: '', season: '', collection: '', silhouette: '',
-  ref_link: '', brief: '', checker_notes: '',
+  brief: '', checker_notes: '',
   // new — spec sheet header
   product_description: '', product_attribute: '', fabrication: '',
   trimmings: '', washcare: '', base_size: '', style_tag: '',
   front_image_url: '', back_image_url: '',
+  ref_image_urls: [],
 }
 
 function NewStyleInner() {
@@ -47,6 +48,7 @@ function NewStyleInner() {
   const [rows, setRows]       = useState([])      // measurement rows
   const [frontFile, setFront] = useState(null)
   const [backFile,  setBack]  = useState(null)
+  const [refFiles,  setRefFiles] = useState([])   // pending mood-board files (not yet uploaded)
   const [saving, setSaving]   = useState(false)
 
   useEffect(() => {
@@ -57,11 +59,12 @@ function NewStyleInner() {
         name: s.name || '', style_code: s.style_code || '', priority: s.priority || '',
         gender: s.gender || '', category: s.category || '', fabric_platform: s.fabric_platform || '',
         season: s.season || '', collection: s.collection || '', silhouette: s.silhouette || '',
-        ref_link: s.ref_link || '', brief: s.brief || '', checker_notes: s.checker_notes || '',
+        brief: s.brief || '', checker_notes: s.checker_notes || '',
         product_description: s.product_description || '', product_attribute: s.product_attribute || '',
         fabrication: s.fabrication || '', trimmings: s.trimmings || '',
         washcare: s.washcare || '', base_size: s.base_size || '', style_tag: s.style_tag || '',
         front_image_url: s.front_image_url || '', back_image_url: s.back_image_url || '',
+        ref_image_urls: Array.isArray(s.ref_image_urls) ? s.ref_image_urls : [],
       })
       if (Array.isArray(s.sizes) && s.sizes.length) setSizes(s.sizes)
       const m = await getMeasurements(editId)
@@ -135,6 +138,15 @@ function NewStyleInner() {
       const updates = {}
       if (frontFile) updates.front_image_url = await uploadSpecImage(frontFile, styleId, 'front')
       if (backFile)  updates.back_image_url  = await uploadSpecImage(backFile,  styleId, 'back')
+      if (refFiles.length) {
+        const newUrls = await Promise.all(
+          refFiles.map(f => uploadSpecImage(f, styleId, 'ref'))
+        )
+        updates.ref_image_urls = [...(form.ref_image_urls || []), ...newUrls.filter(Boolean)]
+      } else {
+        // No new files but the user may have removed some existing ones; persist current list.
+        updates.ref_image_urls = form.ref_image_urls || []
+      }
       if (Object.keys(updates).length) await updateStyle(styleId, updates)
 
       await replaceMeasurements(styleId, cleanRows)
@@ -365,7 +377,14 @@ function NewStyleInner() {
 
                 <div className="form-group form-full">
                   <label className="form-label">Reference Images / Mood Board</label>
-                  <input className="form-input" value={form.ref_link} onChange={e => set('ref_link', e.target.value)} placeholder="Paste Google Drive or Notion link…" />
+                  <RefImages
+                    urls={form.ref_image_urls}
+                    files={refFiles}
+                    onRemoveUrl={u => set('ref_image_urls', form.ref_image_urls.filter(x => x !== u))}
+                    onRemoveFile={i => setRefFiles(fs => fs.filter((_, idx) => idx !== i))}
+                    onAddFiles={files => setRefFiles(fs => [...fs, ...files])}
+                  />
+                  <div className="form-hint">Images are auto-resized to ~1600px and re-encoded as JPEG before upload.</div>
                 </div>
 
                 <div className="form-group form-full">
@@ -443,6 +462,60 @@ function ImageField({ side, url, file, onFile, onClearUrl }) {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function RefImages({ urls, files, onRemoveUrl, onRemoveFile, onAddFiles }) {
+  const tiles = [
+    ...urls.map(u => ({ key: u, src: u, kind: 'url', value: u })),
+    ...files.map((f, i) => ({ key: `f-${i}`, src: URL.createObjectURL(f), kind: 'file', value: i })),
+  ]
+  return (
+    <div style={{
+      display: 'grid', gap: 10,
+      gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+      border: '1px dashed var(--border)', borderRadius: 8, padding: 10,
+      background: 'var(--raised)',
+    }}>
+      {tiles.map(t => (
+        <div key={t.key} style={{ position: 'relative', aspectRatio: '1', borderRadius: 6, overflow: 'hidden', background: 'var(--surface)' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={t.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <button
+            type="button"
+            onClick={() => t.kind === 'url' ? onRemoveUrl(t.value) : onRemoveFile(t.value)}
+            title="Remove"
+            style={{
+              position: 'absolute', top: 4, right: 4,
+              width: 24, height: 24, borderRadius: '50%',
+              border: 'none', cursor: 'pointer',
+              background: 'rgba(9,9,12,.78)', color: '#fff',
+              fontSize: 12, lineHeight: '24px', padding: 0,
+            }}
+          >✕</button>
+        </div>
+      ))}
+      <label style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        aspectRatio: '1', borderRadius: 6, cursor: 'pointer',
+        border: '1px dashed var(--border)', background: 'var(--surface)',
+        color: 'var(--t2)', fontSize: 12, fontWeight: 600, letterSpacing: 0.5,
+        textTransform: 'uppercase', fontFamily: 'var(--font-mono)',
+      }}>
+        + Add
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: 'none' }}
+          onChange={e => {
+            const picked = Array.from(e.target.files || [])
+            if (picked.length) onAddFiles(picked)
+            e.target.value = ''
+          }}
+        />
+      </label>
     </div>
   )
 }

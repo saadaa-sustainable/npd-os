@@ -16,6 +16,7 @@ alter table public.styles
   add column if not exists style_tag           text,      -- CASUAL / FORMAL / SPORT etc.
   add column if not exists front_image_url     text,
   add column if not exists back_image_url      text,
+  add column if not exists ref_image_urls      text[] default '{}',
   add column if not exists sizes               jsonb default '[]'::jsonb;
   -- sizes shape: [{"label":"XS","code":"28"}, {"label":"S","code":"30"}, ...]
 
@@ -42,6 +43,11 @@ create index if not exists style_measurements_style_id_idx
 
 alter table public.style_measurements enable row level security;
 
+drop policy if exists "meas_select" on public.style_measurements;
+drop policy if exists "meas_insert" on public.style_measurements;
+drop policy if exists "meas_update" on public.style_measurements;
+drop policy if exists "meas_delete" on public.style_measurements;
+
 create policy "meas_select" on public.style_measurements
   for select using (auth.role() = 'authenticated');
 
@@ -64,6 +70,11 @@ on conflict (id) do nothing;
 
 -- Public read (so <img src=...> works without signed URLs).
 -- Authenticated users can write/delete their uploads.
+drop policy if exists "spec_images_read"   on storage.objects;
+drop policy if exists "spec_images_insert" on storage.objects;
+drop policy if exists "spec_images_update" on storage.objects;
+drop policy if exists "spec_images_delete" on storage.objects;
+
 create policy "spec_images_read"
   on storage.objects for select
   using (bucket_id = 'spec-images');
@@ -88,7 +99,8 @@ select column_name, data_type from information_schema.columns
 where table_schema = 'public' and table_name = 'styles'
   and column_name in (
     'product_description','product_attribute','fabrication','trimmings',
-    'washcare','base_size','style_tag','front_image_url','back_image_url','sizes'
+    'washcare','base_size','style_tag',
+    'front_image_url','back_image_url','ref_image_urls','sizes'
   )
 order by column_name;
 
