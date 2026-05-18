@@ -26,8 +26,8 @@ const STYLE_TAGS = ['CASUAL','FORMAL','SPORT','LOUNGE','PARTY']
 
 const EMPTY_FORM = {
   // existing
-  name: '', style_code: '', priority: '', gender: '', category: '',
-  fabric_platform: '', season: '', collection: '', silhouette: '',
+  name: '', style_code: '', gender: '', category: '',
+  fabric_platform: '', season: '', silhouette: '',
   brief: '', checker_notes: '',
   // new — spec sheet header
   product_description: '', product_attribute: '', fabrication: '',
@@ -66,9 +66,9 @@ function NewStyleInner() {
     (async () => {
       const s = await getStyle(editId)
       setForm({
-        name: s.name || '', style_code: s.style_code || '', priority: s.priority || '',
+        name: s.name || '', style_code: s.style_code || '',
         gender: s.gender || '', category: s.category || '', fabric_platform: s.fabric_platform || '',
-        season: s.season || '', collection: s.collection || '', silhouette: s.silhouette || '',
+        season: s.season || '', silhouette: s.silhouette || '',
         brief: s.brief || '', checker_notes: s.checker_notes || '',
         product_description: s.product_description || '', product_attribute: s.product_attribute || '',
         fabrication: s.fabrication || '', trimmings: s.trimmings || '',
@@ -142,8 +142,8 @@ function NewStyleInner() {
 
   const handleSubmit = async e => {
     e.preventDefault()
-    const { name, priority, gender, category, fabric_platform } = form
-    if (!name || !priority || !gender || !category || !fabric_platform) {
+    const { name, gender, category, fabric_platform } = form
+    if (!name || !gender || !category || !fabric_platform) {
       toast('Please fill all required fields', 'error'); return
     }
     setSaving(true)
@@ -292,14 +292,6 @@ function NewStyleInner() {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Priority <span className="req">*</span></label>
-                  <select className="form-select" value={form.priority} onChange={e => set('priority', e.target.value)}>
-                    <option value="">Select…</option>
-                    {['High','Medium','Low'].map(o => <option key={o}>{o}</option>)}
-                  </select>
-                </div>
-
-                <div className="form-group">
                   <label className="form-label">Gender <span className="req">*</span></label>
                   <select className="form-select" value={form.gender} onChange={e => { set('gender', e.target.value); set('category', '') }}>
                     <option value="">Select…</option>
@@ -326,11 +318,6 @@ function NewStyleInner() {
                 <div className="form-group">
                   <label className="form-label">Season / Drop</label>
                   <input className="form-input" value={form.season} onChange={e => set('season', e.target.value)} placeholder="e.g. June 2026" />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Launch Collection</label>
-                  <input className="form-input" value={form.collection} onChange={e => set('collection', e.target.value)} placeholder="e.g. Monsoon Edit" />
                 </div>
 
                 <div className="form-group">
