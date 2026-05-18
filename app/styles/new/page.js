@@ -49,6 +49,7 @@ function NewStyleInner() {
   const searchParams = useSearchParams()
   const editId = searchParams.get('id')
 
+  const [tab, setTab]         = useState('measurement')  // 'measurement' | 'specification'
   const [form, setForm]       = useState(EMPTY_FORM)
   const [sizes, setSizes]     = useState(DEFAULT_SIZES)
   const [rows, setRows]       = useState([])      // measurement rows
@@ -200,6 +201,16 @@ function NewStyleInner() {
         <div className="card">
           <form onSubmit={handleSubmit}>
             <div className="card-body">
+
+              {/* ── Tab nav ─────────────────────────────────── */}
+              <div style={{
+                display: 'flex', gap: 2, marginBottom: 24,
+                borderBottom: '1px solid var(--border)',
+              }}>
+                <TabButton active={tab === 'measurement'}   onClick={() => setTab('measurement')}>Measurement Sheet</TabButton>
+                <TabButton active={tab === 'specification'} onClick={() => setTab('specification')}>Specification Sheet</TabButton>
+              </div>
+
               <div className="form-grid">
 
                 {/* ── Basic Information ─────────────────────────── */}
@@ -299,6 +310,8 @@ function NewStyleInner() {
                   <input className="form-input" value={form.trimmings} onChange={e => set('trimmings', e.target.value)} placeholder="e.g. Thread, fabric, 4 Hole Chalk Button" />
                 </div>
 
+                {tab === 'measurement' && <>
+
                 {/* ── Front / Back images ───────────────────────── */}
                 <div className="form-section-head">Front & Back Images</div>
 
@@ -393,6 +406,10 @@ function NewStyleInner() {
                   <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={addRow}>+ Add row</button>
                   <div className="form-hint" style={{ marginTop: 6 }}>Values are in inches. Leave a cell blank if the measurement doesn’t apply to that size.</div>
                 </div>
+
+                </>}
+
+                {tab === 'specification' && <>
 
                 {/* ── Specification Sheet — Construction ─────── */}
                 <div className="form-section-head">Construction</div>
@@ -536,6 +553,10 @@ function NewStyleInner() {
                   <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => addItem('trim_rows', { component: '', type: '', supplier: '', code: '', size: '', color: '', quantity: '' })}>+ Add trim</button>
                 </div>
 
+                </>}
+
+                {tab === 'measurement' && <>
+
                 {/* ── Design + Submission ──────────────────────── */}
                 <div className="form-section-head">Design Details</div>
 
@@ -567,6 +588,8 @@ function NewStyleInner() {
                   <label className="form-label">Notes for Checker</label>
                   <input className="form-input" value={form.checker_notes} onChange={e => set('checker_notes', e.target.value)} placeholder="Anything specific the checker should review…" />
                 </div>
+
+                </>}
               </div>
             </div>
 
@@ -645,6 +668,30 @@ function ImageField({ side, url, file, onFile, onClearUrl }) {
         </div>
       </div>
     </div>
+  )
+}
+
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: '12px 20px',
+        background: 'none',
+        border: 'none',
+        borderBottom: active ? '2px solid var(--primary)' : '2px solid transparent',
+        marginBottom: -1,
+        cursor: 'pointer',
+        color: active ? 'var(--primary)' : 'var(--t2)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 1.2,
+        textTransform: 'uppercase',
+        transition: 'color .14s, border-color .14s',
+      }}
+    >{children}</button>
   )
 }
 
