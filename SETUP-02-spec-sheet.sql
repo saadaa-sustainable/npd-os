@@ -29,8 +29,12 @@ alter table public.styles
   -- {main, size, washcare, vendor_code}  (each a description string)
   add column if not exists fabric_specs        jsonb default '{}'::jsonb,
   -- {fabric, fabric_note, preferred_mill, gsm, dye}
-  add column if not exists trim_rows           jsonb default '[]'::jsonb;
+  add column if not exists trim_rows           jsonb default '[]'::jsonb,
   -- [{component, type, supplier, code, size, color, quantity}, ...]
+
+  -- Spec Sheet 1 (detail photos) ─────────────────────────────────
+  add column if not exists detail_blocks       jsonb default '[]'::jsonb;
+  -- [{left_label, left_image_url, description, right_label, right_image_url}, ...]
 
 
 -- ── BLOCK 2: style_measurements TABLE ───────────────────────────
@@ -113,7 +117,8 @@ where table_schema = 'public' and table_name = 'styles'
     'product_description','product_attribute','fabrication','trimmings',
     'washcare','base_size','style_tag',
     'front_image_url','back_image_url','ref_image_urls','sizes',
-    'construction_rows','spi','label_placement','fabric_specs','trim_rows'
+    'construction_rows','spi','label_placement','fabric_specs','trim_rows',
+    'detail_blocks'
   )
 order by column_name;
 

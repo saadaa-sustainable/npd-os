@@ -40,6 +40,8 @@ const EMPTY_FORM = {
   label_placement: { main: '', size: '', washcare: '', vendor_code: '' },
   fabric_specs: { fabric: '', fabric_note: '', preferred_mill: '', gsm: '', dye: '' },
   trim_rows: [],           // [{component, type, supplier, code, size, color, quantity}]
+  // spec sheet 1 (detail photos)
+  detail_blocks: [],       // [{left_label, left_image_url, description, right_label, right_image_url, left_file?, right_file?}]
 }
 
 function NewStyleInner() {
@@ -78,6 +80,7 @@ function NewStyleInner() {
         label_placement:  s.label_placement && typeof s.label_placement === 'object' ? s.label_placement : { main: '', size: '', washcare: '', vendor_code: '' },
         fabric_specs:     s.fabric_specs    && typeof s.fabric_specs    === 'object' ? s.fabric_specs    : { fabric: '', fabric_note: '', preferred_mill: '', gsm: '', dye: '' },
         trim_rows:        Array.isArray(s.trim_rows) ? s.trim_rows : [],
+        detail_blocks:    Array.isArray(s.detail_blocks) ? s.detail_blocks : [],
       })
       if (Array.isArray(s.sizes) && s.sizes.length) setSizes(s.sizes)
       const m = await getMeasurements(editId)
@@ -150,7 +153,16 @@ function NewStyleInner() {
       }))
       const cleanRows = rows.filter(r => r.label?.trim())
 
-      const basePayload = { ...form, sizes: cleanSizes }
+      // Strip File objects from detail_blocks before initial save (they don't serialize).
+      const sanitizedBlocks = form.detail_blocks.map(b => ({
+        left_label:      b.left_label      || '',
+        left_image_url:  b.left_image_url  || '',
+        description:     b.description     || '',
+        right_label:     b.right_label     || '',
+        right_image_url: b.right_image_url || '',
+      }))
+
+      const basePayload = { ...form, sizes: cleanSizes, detail_blocks: sanitizedBlocks }
 
       let styleId = editId
       if (editId) {
@@ -176,6 +188,24 @@ function NewStyleInner() {
         // No new files but the user may have removed some existing ones; persist current list.
         updates.ref_image_urls = form.ref_image_urls || []
       }
+
+      // Detail-block images (any block may have a pending left/right File).
+      const hasPendingBlockImages = form.detail_blocks.some(b => b.left_file || b.right_file)
+      if (hasPendingBlockImages) {
+        updates.detail_blocks = await Promise.all(form.detail_blocks.map(async (b, i) => {
+          const block = {
+            left_label:      b.left_label      || '',
+            left_image_url:  b.left_image_url  || '',
+            description:     b.description     || '',
+            right_label:     b.right_label     || '',
+            right_image_url: b.right_image_url || '',
+          }
+          if (b.left_file)  block.left_image_url  = await uploadSpecImage(b.left_file,  styleId, `detail-${i}-l`)
+          if (b.right_file) block.right_image_url = await uploadSpecImage(b.right_file, styleId, `detail-${i}-r`)
+          return block
+        }))
+      }
+
       if (Object.keys(updates).length) await updateStyle(styleId, updates)
 
       await replaceMeasurements(styleId, cleanRows)
@@ -210,11 +240,12 @@ function NewStyleInner() {
               }}>
                 <TabButton active={tab === 'measurement'}   onClick={() => setTab('measurement')}>Measurement Sheet</TabButton>
                 <TabButton active={tab === 'specification'} onClick={() => setTab('specification')}>Specification Sheet</TabButton>
+                <TabButton active={tab === 'detail'}        onClick={() => setTab('detail')}>Spec Sheet 1</TabButton>
               </div>
 
               <div className="form-grid">
 
-                {tab === 'specification' && (
+                {tab !== 'measurement' && (
                   <button
                     type="button"
                     onClick={() => setHeaderOpen(o => !o)}
@@ -590,6 +621,50 @@ function NewStyleInner() {
 
                 </>}
 
+                {tab === 'detail' && <>
+
+                {/* ── Spec Sheet 1 — Detail Photos ─────────────── */}
+                <div className="form-section-head">Detail Photos</div>
+
+                <div className="form-full" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {form.detail_blocks.length === 0 && (
+                    <div style={{
+                      border: '1px dashed var(--border)', borderRadius: 8, padding: '32px 20px',
+                      textAlign: 'center', color: 'var(--t3)', fontSize: 13, background: 'var(--raised)',
+                    }}>
+                      No detail blocks yet — click <em>+ Add detail block</em> below to add one.<br/>
+                      <span style={{ fontSize: 11, color: 'var(--t3)' }}>Each block has a left photo, a description, and a right photo (e.g. Front / Back, Waistband Out / In).</span>
+                    </div>
+                  )}
+
+                  {form.detail_blocks.map((b, i) => (
+                    <DetailBlock
+                      key={i}
+                      index={i}
+                      block={b}
+                      isFirst={i === 0}
+                      isLast={i === form.detail_blocks.length - 1}
+                      onChange={(k, v) => setItemField('detail_blocks', i, k, v)}
+                      onMoveUp={() => moveItem('detail_blocks', i, -1)}
+                      onMoveDown={() => moveItem('detail_blocks', i, 1)}
+                      onRemove={() => removeItem('detail_blocks', i)}
+                    />
+                  ))}
+
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() => addItem('detail_blocks', {
+                      left_label: '', left_image_url: '', left_file: null,
+                      description: '',
+                      right_label: '', right_image_url: '', right_file: null,
+                    })}
+                  >+ Add detail block</button>
+                </div>
+
+                </>}
+
                 {tab === 'measurement' && <>
 
                 {/* ── Design + Submission ──────────────────────── */}
@@ -699,6 +774,108 @@ function ImageField({ side, url, file, onFile, onClearUrl }) {
               className="btn btn-ghost btn-sm"
               onClick={() => { onFile(null); onClearUrl() }}
             >Remove</button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DetailBlock({ index, block, isFirst, isLast, onChange, onMoveUp, onMoveDown, onRemove }) {
+  return (
+    <div style={{
+      border: '1px solid var(--border-dim)', borderRadius: 10, padding: 14,
+      background: 'var(--surface)', boxShadow: 'var(--shadow-sm)',
+    }}>
+      {/* Block header */}
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 700,
+          letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t3)',
+        }}>Block {index + 1}</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+          <button type="button" className="btn btn-ghost btn-xs" disabled={isFirst} onClick={onMoveUp} title="Move up">↑</button>
+          <button type="button" className="btn btn-ghost btn-xs" disabled={isLast}  onClick={onMoveDown} title="Move down">↓</button>
+          <button type="button" className="btn btn-ghost btn-xs" onClick={onRemove} title="Remove block">✕</button>
+        </div>
+      </div>
+
+      {/* 3-column layout: left photo | description | right photo */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+        {/* Left */}
+        <DetailPhotoSlot
+          side="left"
+          label={block.left_label}
+          url={block.left_image_url}
+          file={block.left_file}
+          onLabel={v => onChange('left_label', v)}
+          onFile={f => onChange('left_file', f)}
+          onClearUrl={() => { onChange('left_file', null); onChange('left_image_url', '') }}
+          placeholder="e.g. Front Detail"
+        />
+
+        {/* Center description */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label className="form-label" style={{ textAlign: 'center' }}>Details</label>
+          <textarea
+            className="form-textarea"
+            style={{ minHeight: 220, fontSize: 13 }}
+            value={block.description || ''}
+            onChange={e => onChange('description', e.target.value)}
+            placeholder="Describe the construction, finish, stitching, etc."
+          />
+        </div>
+
+        {/* Right */}
+        <DetailPhotoSlot
+          side="right"
+          label={block.right_label}
+          url={block.right_image_url}
+          file={block.right_file}
+          onLabel={v => onChange('right_label', v)}
+          onFile={f => onChange('right_file', f)}
+          onClearUrl={() => { onChange('right_file', null); onChange('right_image_url', '') }}
+          placeholder="e.g. Back Detail"
+        />
+      </div>
+    </div>
+  )
+}
+
+function DetailPhotoSlot({ label, url, file, onLabel, onFile, onClearUrl, placeholder }) {
+  const preview = file ? URL.createObjectURL(file) : url
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <input
+        className="form-input"
+        style={{ textAlign: 'center', fontWeight: 600, fontSize: 12.5, letterSpacing: 0.5, textTransform: 'uppercase' }}
+        value={label || ''}
+        onChange={e => onLabel(e.target.value)}
+        placeholder={placeholder}
+      />
+      <div style={{
+        border: '1px dashed var(--border)', borderRadius: 8, padding: 10,
+        display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center',
+        background: 'var(--raised)', minHeight: 220,
+      }}>
+        {preview ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={preview} alt="" style={{ maxHeight: 180, maxWidth: '100%', objectFit: 'contain', borderRadius: 4 }} />
+        ) : (
+          <div style={{ color: 'var(--t3)', fontSize: 12, padding: '50px 0' }}>No image</div>
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <label className="btn btn-ghost btn-xs" style={{ cursor: 'pointer' }}>
+            {preview ? 'Replace' : 'Choose file'}
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={e => onFile(e.target.files?.[0] || null)}
+            />
+          </label>
+          {preview && (
+            <button type="button" className="btn btn-ghost btn-xs" onClick={onClearUrl}>Remove</button>
           )}
         </div>
       </div>
