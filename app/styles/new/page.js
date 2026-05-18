@@ -50,6 +50,7 @@ function NewStyleInner() {
   const editId = searchParams.get('id')
 
   const [tab, setTab]         = useState('measurement')  // 'measurement' | 'specification'
+  const [headerOpen, setHeaderOpen] = useState(false)     // shared header visibility on Spec tab
   const [form, setForm]       = useState(EMPTY_FORM)
   const [sizes, setSizes]     = useState(DEFAULT_SIZES)
   const [rows, setRows]       = useState([])      // measurement rows
@@ -213,6 +214,38 @@ function NewStyleInner() {
 
               <div className="form-grid">
 
+                {tab === 'specification' && (
+                  <button
+                    type="button"
+                    onClick={() => setHeaderOpen(o => !o)}
+                    className="form-full"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '12px 16px',
+                      background: 'var(--raised)',
+                      border: '1px solid var(--border-dim)',
+                      borderRadius: 8,
+                      cursor: 'pointer', textAlign: 'left',
+                      fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                      letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t2)',
+                      transition: 'background .14s, border-color .14s',
+                    }}
+                  >
+                    <span style={{
+                      display: 'inline-block',
+                      transform: headerOpen ? 'rotate(0)' : 'rotate(-90deg)',
+                      transition: 'transform .15s', fontSize: 13, lineHeight: 1,
+                    }}>▾</span>
+                    Product Info <span style={{ color: 'var(--t3)', fontWeight: 500 }}>(from Measurement Sheet)</span>
+                    <span style={{
+                      marginLeft: 'auto', fontSize: 10, color: 'var(--t3)',
+                      fontWeight: 500, letterSpacing: 0, textTransform: 'none',
+                    }}>{headerOpen ? 'click to hide' : 'click to show'}</span>
+                  </button>
+                )}
+
+                {(tab === 'measurement' || headerOpen) && <>
+
                 {/* ── Basic Information ─────────────────────────── */}
                 <div className="form-section-head">Basic Information</div>
 
@@ -309,6 +342,8 @@ function NewStyleInner() {
                   <label className="form-label">Trimmings</label>
                   <input className="form-input" value={form.trimmings} onChange={e => set('trimmings', e.target.value)} placeholder="e.g. Thread, fabric, 4 Hole Chalk Button" />
                 </div>
+
+                </>}
 
                 {tab === 'measurement' && <>
 
