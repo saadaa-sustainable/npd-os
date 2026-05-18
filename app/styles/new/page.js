@@ -22,7 +22,11 @@ const DEFAULT_SIZES = [
   { label: '4XL', code: '4XL' },
 ]
 
-const STYLE_TAGS = ['CASUAL','FORMAL','SPORT','LOUNGE','PARTY']
+const STYLE_TAGS = [
+  'Casual', 'Smart Casual', 'Festive Wear', 'Ethnic',
+  'Formal', 'Semi-Formal', 'Athleisure', 'Undergarments',
+]
+const ADD_NEW = '__add_new__'
 
 const EMPTY_FORM = {
   // existing
@@ -51,8 +55,9 @@ function NewStyleInner() {
   const searchParams = useSearchParams()
   const editId = searchParams.get('id')
 
-  const [tab, setTab]         = useState('measurement')  // 'measurement' | 'specification'
+  const [tab, setTab]         = useState('measurement')  // 'measurement' | 'specification' | 'detail'
   const [headerOpen, setHeaderOpen] = useState(false)     // shared header visibility on Spec tab
+  const [tagCustom, setTagCustom]   = useState(false)     // demographic style: typing a custom value?
   const [form, setForm]       = useState(EMPTY_FORM)
   const [sizes, setSizes]     = useState(DEFAULT_SIZES)
   const [rows, setRows]       = useState([])      // measurement rows
@@ -83,6 +88,7 @@ function NewStyleInner() {
         detail_blocks:    Array.isArray(s.detail_blocks) ? s.detail_blocks : [],
       })
       if (Array.isArray(s.sizes) && s.sizes.length) setSizes(s.sizes)
+      if (s.style_tag && !STYLE_TAGS.includes(s.style_tag)) setTagCustom(true)
       const m = await getMeasurements(editId)
       setRows(m.map(r => ({
         label: r.label, hindi_label: r.hindi_label || '',
@@ -321,11 +327,30 @@ function NewStyleInner() {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Style Tag</label>
-                  <select className="form-select" value={form.style_tag} onChange={e => set('style_tag', e.target.value)}>
+                  <label className="form-label">Demographic Styles</label>
+                  <select
+                    className="form-select"
+                    value={tagCustom ? ADD_NEW : form.style_tag}
+                    onChange={e => {
+                      const v = e.target.value
+                      if (v === ADD_NEW) { setTagCustom(true); set('style_tag', '') }
+                      else               { setTagCustom(false); set('style_tag', v) }
+                    }}
+                  >
                     <option value="">Select…</option>
-                    {STYLE_TAGS.map(t => <option key={t}>{t}</option>)}
+                    {STYLE_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
+                    <option value={ADD_NEW}>+ Add new…</option>
                   </select>
+                  {tagCustom && (
+                    <input
+                      className="form-input"
+                      style={{ marginTop: 6 }}
+                      value={form.style_tag}
+                      onChange={e => set('style_tag', e.target.value)}
+                      placeholder="Type a new demographic style…"
+                      autoFocus
+                    />
+                  )}
                 </div>
 
                 <div className="form-group">
