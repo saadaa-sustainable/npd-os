@@ -8,13 +8,14 @@ import { signOut, supabase } from '@/lib/supabase'
 import Toast from '@/components/Toast'
 
 const NAV = [
-  { id: 'dashboard',  label: 'Overview',          href: '/dashboard',  roles: ['founder','viewer'],                   icon: IconGrid },
-  { id: 'styles',     label: 'All Styles',         href: '/styles',     roles: ['founder','maker','checker','viewer'],  icon: IconClip },
-  { id: 'styles/new', label: 'New Style',          href: '/styles/new', roles: ['founder','maker'],                    icon: IconPlus },
-  { id: 'approvals',  label: 'Approvals',          href: '/approvals',  roles: ['founder','checker'],                  icon: IconShield, badge: true },
-  { id: 'inventory',  label: 'Inventory Planning', href: '/inventory',  roles: ['founder','maker','checker'],          icon: IconBox },
-  { id: 'workflow',   label: 'Workflow Guide',     href: '/workflow',   roles: ['founder','maker','checker','viewer'], icon: IconZap },
-  { id: 'admin',      label: 'User Management',    href: '/admin',      roles: ['founder'],                            icon: IconUsers },
+  { id: 'dashboard',   label: 'Overview',          href: '/dashboard',    roles: ['founder','viewer'],                   icon: IconGrid },
+  { id: 'weekly-plan', label: 'Weekly Plan',       href: '/weekly-plan',  roles: ['founder','maker','checker','viewer'], icon: IconCalendar },
+  { id: 'styles',      label: 'All Styles',        href: '/styles',       roles: ['founder','maker','checker','viewer'], icon: IconClip },
+  { id: 'styles/new',  label: 'New Style',         href: '/styles/new',   roles: ['founder','maker'],                    icon: IconPlus },
+  { id: 'approvals',   label: 'Approvals',         href: '/approvals',    roles: ['founder','checker'],                  icon: IconShield, badge: true },
+  { id: 'inventory',   label: 'Inventory Planning',href: '/inventory',    roles: ['founder','maker','checker'],          icon: IconBox },
+  { id: 'workflow',    label: 'Workflow Guide',    href: '/workflow',     roles: ['founder','maker','checker','viewer'], icon: IconZap },
+  { id: 'admin',       label: 'User Management',   href: '/admin',        roles: ['founder'],                            icon: IconUsers },
 ]
 
 export default function AppShell({ children, title, subtitle }) {
@@ -129,3 +130,4 @@ function IconShield() { return <svg className="nav-icon" fill="none" stroke="cur
 function IconBox()    { return <svg className="nav-icon" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg> }
 function IconZap()    { return <svg className="nav-icon" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> }
 function IconUsers()  { return <svg className="nav-icon" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg> }
+function IconCalendar(){ return <svg className="nav-icon" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg> }
