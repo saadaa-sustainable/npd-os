@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import AppShell from '@/components/layout/AppShell'
 import { useRequireAuth } from '@/lib/auth-context'
 import { useToast } from '@/components/Toast'
@@ -15,11 +15,12 @@ import {
   CATEGORY_OPTIONS,
 } from '@/lib/supabase'
 
-const STATUS_BADGE = {
+const ITEM_STATUS_BADGE = {
   draft:     'badge-grey',
   submitted: 'badge-blue',
   approved:  'badge-green',
   rejected:  'badge-red',
+  cancelled: 'badge-orange',
 }
 
 const DEMOGRAPHIC_OPTIONS = [
@@ -34,16 +35,19 @@ function localKey() {
 }
 
 // Each item is a single style cut from the parent fabric, with its
-// OWN reference photos + reference links (since the visual references
-// for different cuts of the same fabric will differ).
+// OWN reference photos + reference links and its OWN approval status,
+// since per the doc each style flows through Sadiqji's approval
+// independently and Hold/Cancel is a universal exit at any step.
 const emptyItem = () => ({
   key: localKey(),
+  status: 'draft',
   silhouette: '',
   gender: '',
   category: '',
   demographic_type: '',
   photos: [],          // UI shape: [{ url?, file? }]
   ref_links: [''],
+  rejection_reason: '',
 })
 
 const emptyFabric = () => ({
@@ -56,12 +60,14 @@ const emptyFabric = () => ({
 function hydrateItem(raw) {
   return {
     key:              raw.id || localKey(),
+    status:           raw.status           || 'draft',
     silhouette:       raw.silhouette       || '',
     gender:           raw.gender           || '',
     category:         raw.category         || '',
     demographic_type: raw.demographic_type || '',
     photos:    Array.isArray(raw.photos)    ? raw.photos.map(u => ({ url: u })) : [],
     ref_links: Array.isArray(raw.ref_links) && raw.ref_links.length ? raw.ref_links : [''],
+    rejection_reason: raw.rejection_reason || '',
   }
 }
 
@@ -79,7 +85,6 @@ function hydrateFabric(row) {
 
 function WeeklyPlanFormInner() {
   const user   = useRequireAuth()
-  const router = useRouter()
   const toast  = useToast()
   const search = useSearchParams()
   const editId = search.get('id')
@@ -89,8 +94,6 @@ function WeeklyPlanFormInner() {
   const [plan, setPlan] = useState({
     week_start_date: toISODate(initialMon),
     week_end_date:   toISODate(addDays(initialMon, 7)),
-    status: 'draft',
-    rejection_reason: '',
   })
   const [fabrics, setFabrics]    = useState([emptyFabric()])
   const [removedIds, setRemoved] = useState([])     // fabric DB IDs to delete on save
@@ -107,8 +110,6 @@ function WeeklyPlanFormInner() {
         setPlan({
           week_start_date:  p.week_start_date,
           week_end_date:    p.week_end_date,
-          status:           p.status,
-          rejection_reason: p.rejection_reason || '',
         })
         setFabrics(fs.length > 0 ? fs.map(hydrateFabric) : [emptyFabric()])
       } catch (err) { toast(err.message, 'error') }
@@ -120,7 +121,6 @@ function WeeklyPlanFormInner() {
 
   const canEditDates = canEditWeeklyPlanDates(user)
   const canSubmit    = ['founder','maker'].includes(user.role)
-  const isReadOnly   = plan.status === 'approved' && user.role !== 'founder'
 
   // ── plan setters ────────────────────────────────────────────
   const setPlanField = (k, v) => setPlan(p => ({ ...p, [k]: v }))
@@ -143,7 +143,6 @@ function WeeklyPlanFormInner() {
   const removeItem = (fi, ii)       => updateItems(fi, items => items.filter((_, i) => i !== ii))
   const setItemField = (fi, ii, k, v) => updateItems(fi, items => items.map((it, i) =>
     i === ii ? (
-      // changing gender resets category since options depend on gender
       k === 'gender' ? { ...it, gender: v, category: '' } : { ...it, [k]: v }
     ) : it
   ))
@@ -168,7 +167,10 @@ function WeeklyPlanFormInner() {
   ))
 
   // ── persistence ─────────────────────────────────────────────
-  const persist = async (nextStatus) => {
+  // Persists the entire form. If `targetFi/targetIi/targetStatus` are
+  // supplied, the addressed item's status is overridden to `targetStatus`
+  // before saving (everyone else keeps their current status).
+  const persist = async ({ targetFi = null, targetIi = null, targetStatus = null } = {}) => {
     if (!plan.week_start_date || !plan.week_end_date) {
       toast('Set both week start and end dates', 'error'); return
     }
@@ -178,11 +180,10 @@ function WeeklyPlanFormInner() {
 
     setSaving(true)
     try {
-      // 1. Upsert the plan first so we have a planId.
+      // 1. Upsert the plan (just dates).
       const planPayload = {
         week_start_date: plan.week_start_date,
         week_end_date:   plan.week_end_date,
-        status:          nextStatus || plan.status,
       }
       let planId = editId
       if (editId) {
@@ -197,23 +198,30 @@ function WeeklyPlanFormInner() {
       setRemoved([])
 
       // 3. For each fabric: upload pending item photos → upsert row.
+      // Mutate the local item.status when the user clicked an action button on
+      // a specific item so the UI reflects the change after save.
+      let mutatedLocalCopy = null
+
       for (let i = 0; i < fabrics.length; i++) {
         const f = fabrics[i]
 
-        const itemsClean = await Promise.all(f.items.map(async it => {
+        const itemsClean = await Promise.all(f.items.map(async (it, j) => {
           const photoUrls = await Promise.all(it.photos.map(async p => {
             if (p.url) return p.url
             if (p.file) return await uploadWeeklyPlanImage(p.file, planId, f.key, it.key)
             return null
           }))
+          const status = (targetFi === i && targetIi === j && targetStatus) ? targetStatus : it.status
           return {
             id:               it.key,
+            status,
             silhouette:       it.silhouette       || '',
             gender:           it.gender           || '',
             category:         it.category         || '',
             demographic_type: it.demographic_type || '',
             photos:           photoUrls.filter(Boolean),
             ref_links:        it.ref_links.map(l => (l || '').trim()).filter(Boolean),
+            rejection_reason: it.rejection_reason || '',
           }
         }))
 
@@ -233,12 +241,27 @@ function WeeklyPlanFormInner() {
           items:          itemsKept,
           sort_order:     i,
         })
+
+        // Track local mutation so we can update React state without a refetch.
+        if (targetFi === i && targetIi !== null && targetStatus) {
+          mutatedLocalCopy = mutatedLocalCopy || fabrics.map(x => ({ ...x, items: x.items.slice() }))
+          if (mutatedLocalCopy[i]?.items?.[targetIi]) {
+            mutatedLocalCopy[i].items[targetIi] = {
+              ...mutatedLocalCopy[i].items[targetIi],
+              status: targetStatus,
+            }
+          }
+        }
       }
 
-      toast(nextStatus === 'submitted'
-        ? 'Plan submitted for approval ✓'
-        : 'Plan saved ✓', 'success')
-      setTimeout(() => router.push('/weekly-plan'), 700)
+      if (mutatedLocalCopy) setFabrics(mutatedLocalCopy)
+
+      const successMsg = !targetStatus ? 'Plan saved ✓'
+        : targetStatus === 'submitted' ? 'Item submitted for approval ✓'
+        : targetStatus === 'cancelled' ? 'Item cancelled / on hold'
+        : targetStatus === 'draft'     ? 'Item saved as draft ✓'
+        : 'Saved ✓'
+      toast(successMsg, targetStatus === 'cancelled' ? 'info' : 'success')
     } catch (err) { toast(err.message, 'error') }
     finally       { setSaving(false) }
   }
@@ -262,7 +285,6 @@ function WeeklyPlanFormInner() {
           <div className="card-body">
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700 }}>Week Window</div>
-              <span className={`badge ${STATUS_BADGE[plan.status] || 'badge-grey'}`} style={{ marginLeft: 12 }}>{plan.status}</span>
               {!canEditDates && (
                 <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--t3)' }}>
                   🔒 Only founders & Sadiqji can edit week dates
@@ -277,7 +299,7 @@ function WeeklyPlanFormInner() {
                   type="date"
                   className="form-input"
                   value={plan.week_start_date}
-                  disabled={!canEditDates || isReadOnly}
+                  disabled={!canEditDates}
                   onChange={e => {
                     const v = e.target.value
                     setPlanField('week_start_date', v)
@@ -292,18 +314,12 @@ function WeeklyPlanFormInner() {
                   type="date"
                   className="form-input"
                   value={plan.week_end_date}
-                  disabled={!canEditDates || isReadOnly}
+                  disabled={!canEditDates}
                   onChange={e => setPlanField('week_end_date', e.target.value)}
                 />
                 <div className="form-hint">Auto-set to start + 7 days. Override if needed.</div>
               </div>
             </div>
-
-            {plan.rejection_reason && (
-              <div style={{ marginTop: 14, padding: '10px 14px', background: 'var(--red-10)', border: '1px solid rgba(201,69,69,.2)', borderRadius: 'var(--r-sm)', fontSize: 12, color: 'var(--red)' }}>
-                <strong>Rejection reason:</strong> {plan.rejection_reason}
-              </div>
-            )}
           </div>
         </div>
 
@@ -313,8 +329,9 @@ function WeeklyPlanFormInner() {
             key={f.key}
             index={fi}
             fabric={f}
-            disabled={isReadOnly}
             canRemove={fabrics.length > 1}
+            canSubmit={canSubmit}
+            saving={saving}
             onSetField={(k, v) => setFabricField(fi, k, v)}
             onRemove={() => removeFabric(fi)}
             onAddItem={() => addItem(fi)}
@@ -325,35 +342,13 @@ function WeeklyPlanFormInner() {
             onSetItemRefLink={(ii, lIdx, v) => setItemRefLink(fi, ii, lIdx, v)}
             onAddItemRefLink={ii => addItemRefLink(fi, ii)}
             onRemoveItemRefLink={(ii, lIdx) => removeItemRefLink(fi, ii, lIdx)}
+            onItemAction={(ii, status) => persist({ targetFi: fi, targetIi: ii, targetStatus: status })}
           />
         ))}
 
-        {!isReadOnly && (
-          <button type="button" className="btn btn-primary" onClick={addFabric} style={{ marginTop: 4 }}>
-            + Add Fabric
-          </button>
-        )}
-
-        {/* ── Footer actions ────────────────────────────────── */}
-        {!isReadOnly && (
-          <div style={{ marginTop: 28, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <a href="/weekly-plan" className="btn btn-ghost">Cancel</a>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={saving}
-              onClick={() => persist('draft')}
-            >{saving ? 'Saving…' : 'Save Draft'}</button>
-            {canSubmit && plan.status !== 'submitted' && plan.status !== 'approved' && (
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={saving}
-                onClick={() => persist('submitted')}
-              >{saving ? 'Saving…' : 'Submit for Approval'}</button>
-            )}
-          </div>
-        )}
+        <button type="button" className="btn btn-primary" onClick={addFabric} style={{ marginTop: 4 }}>
+          + Add Fabric
+        </button>
       </div>
     </AppShell>
   )
@@ -361,11 +356,12 @@ function WeeklyPlanFormInner() {
 
 // ─── Fabric card (parent container, just name + items) ─────────
 function FabricCard({
-  index, fabric, disabled, canRemove,
+  index, fabric, canRemove, canSubmit, saving,
   onSetField, onRemove,
   onAddItem, onRemoveItem, onSetItemField,
   onAddItemPhotos, onRemoveItemPhoto,
   onSetItemRefLink, onAddItemRefLink, onRemoveItemRefLink,
+  onItemAction,
 }) {
   return (
     <div className="card" style={{ marginBottom: 16 }}>
@@ -379,7 +375,7 @@ function FabricCard({
           }}>{index + 1}</span>
           Fabric
         </div>
-        {!disabled && canRemove && (
+        {canRemove && (
           <button type="button" className="btn btn-ghost btn-xs" onClick={onRemove} title="Remove fabric">✕ Remove fabric</button>
         )}
       </div>
@@ -390,7 +386,6 @@ function FabricCard({
           <div className="form-group form-full">
             <label className="form-label">Fabric Name</label>
             <input className="form-input" value={fabric.name}
-              disabled={disabled}
               onChange={e => onSetField('name', e.target.value)}
               placeholder="e.g. Cotton Flax 80/20" />
           </div>
@@ -404,8 +399,9 @@ function FabricCard({
                 key={it.key}
                 index={ii}
                 item={it}
-                disabled={disabled}
                 canRemove={fabric.items.length > 1}
+                canSubmit={canSubmit}
+                saving={saving}
                 onSetField={(k, v) => onSetItemField(ii, k, v)}
                 onRemove={() => onRemoveItem(ii)}
                 onAddPhotos={files => onAddItemPhotos(ii, files)}
@@ -413,14 +409,13 @@ function FabricCard({
                 onSetRefLink={(lIdx, v) => onSetItemRefLink(ii, lIdx, v)}
                 onAddRefLink={() => onAddItemRefLink(ii)}
                 onRemoveRefLink={lIdx => onRemoveItemRefLink(ii, lIdx)}
+                onAction={status => onItemAction(ii, status)}
               />
             ))}
 
-            {!disabled && (
-              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onAddItem}>
-                + Add Item
-              </button>
-            )}
+            <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onAddItem}>
+              + Add Item
+            </button>
           </div>
 
         </div>
@@ -431,37 +426,63 @@ function FabricCard({
 
 // ─── Item row (style cut from this fabric, with own refs) ──────
 function ItemRow({
-  index, item, disabled, canRemove,
+  index, item, canRemove, canSubmit, saving,
   onSetField, onRemove,
   onAddPhotos, onRemovePhoto,
   onSetRefLink, onAddRefLink, onRemoveRefLink,
+  onAction,
 }) {
   const catOptions = item.gender ? (CATEGORY_OPTIONS[item.gender] || []) : []
   const [demoCustom, setDemoCustom] = useState(
     !!item.demographic_type && !DEMOGRAPHIC_OPTIONS.includes(item.demographic_type)
   )
 
+  const isCancelled  = item.status === 'cancelled'
+  const isApproved   = item.status === 'approved'
+  const isSubmitted  = item.status === 'submitted'
+
+  // Approved items are locked (only Hold/Cancel is available).
+  // Cancelled items show a Re-open action that returns them to draft.
+  const showSaveDraft = !isApproved && !isCancelled
+  const showSubmit    = canSubmit && (item.status === 'draft' || item.status === 'rejected')
+  const showCancel    = !isCancelled
+  const showReopen    = isCancelled
+
+  const inputDisabled = isApproved || isSubmitted || isCancelled
+
   return (
     <div style={{
       border: '1px solid var(--border-dim)', borderRadius: 10, padding: 14,
-      background: 'var(--raised)',
+      background: isCancelled ? 'var(--surface)' : 'var(--raised)',
+      opacity: isCancelled ? 0.65 : 1,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <span style={{
           fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 700,
           letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t3)',
         }}>Item {index + 1}</span>
-        {!disabled && canRemove && (
-          <button type="button" className="btn btn-ghost btn-xs" style={{ marginLeft: 'auto' }} onClick={onRemove}>✕</button>
+        <span className={`badge ${ITEM_STATUS_BADGE[item.status] || 'badge-grey'}`}>{item.status}</span>
+        {canRemove && item.status === 'draft' && (
+          <button type="button" className="btn btn-ghost btn-xs" style={{ marginLeft: 'auto' }} onClick={onRemove} title="Remove item">✕</button>
         )}
       </div>
+
+      {item.status === 'rejected' && item.rejection_reason && (
+        <div style={{
+          marginBottom: 12, padding: '8px 12px',
+          background: 'var(--red-10)', border: '1px solid rgba(201,69,69,.2)',
+          borderRadius: 'var(--r-sm)', fontSize: 11.5, color: 'var(--red)',
+        }}>
+          <strong>Rejected:</strong> {item.rejection_reason}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
 
         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
           <label className="form-label">Silhouette</label>
           <input className="form-input" value={item.silhouette}
-            disabled={disabled}
+            disabled={inputDisabled}
             onChange={e => onSetField('silhouette', e.target.value)}
             placeholder="e.g. Relaxed straight, cropped at ankle" />
         </div>
@@ -469,7 +490,7 @@ function ItemRow({
         <div className="form-group">
           <label className="form-label">Gender</label>
           <select className="form-select" value={item.gender}
-            disabled={disabled}
+            disabled={inputDisabled}
             onChange={e => onSetField('gender', e.target.value)}>
             <option value="">Select…</option>
             {['Women','Men','Unisex'].map(o => <option key={o}>{o}</option>)}
@@ -479,7 +500,7 @@ function ItemRow({
         <div className="form-group">
           <label className="form-label">Category</label>
           <select className="form-select" value={item.category}
-            disabled={disabled || !item.gender}
+            disabled={inputDisabled || !item.gender}
             onChange={e => onSetField('category', e.target.value)}>
             <option value="">{item.gender ? 'Select…' : 'Select gender first'}</option>
             {catOptions.map(o => <option key={o}>{o}</option>)}
@@ -491,7 +512,7 @@ function ItemRow({
           <select
             className="form-select"
             value={demoCustom ? ADD_NEW : item.demographic_type}
-            disabled={disabled}
+            disabled={inputDisabled}
             onChange={e => {
               const v = e.target.value
               if (v === ADD_NEW) { setDemoCustom(true); onSetField('demographic_type', '') }
@@ -504,7 +525,7 @@ function ItemRow({
           {demoCustom && (
             <input className="form-input" style={{ marginTop: 6 }}
               value={item.demographic_type}
-              disabled={disabled}
+              disabled={inputDisabled}
               onChange={e => onSetField('demographic_type', e.target.value)}
               placeholder="Type a new demographic…" autoFocus />
           )}
@@ -515,7 +536,7 @@ function ItemRow({
           <label className="form-label">Reference Photos</label>
           <PhotoGrid
             photos={item.photos}
-            disabled={disabled}
+            disabled={inputDisabled}
             onAdd={onAddPhotos}
             onRemove={onRemovePhoto}
           />
@@ -529,16 +550,16 @@ function ItemRow({
             {item.ref_links.map((link, lIdx) => (
               <div key={lIdx} style={{ display: 'flex', gap: 6 }}>
                 <input className="form-input" value={link}
-                  disabled={disabled}
+                  disabled={inputDisabled}
                   onChange={e => onSetRefLink(lIdx, e.target.value)}
                   placeholder="Pinterest / competitor URL…"
                   style={{ flex: 1 }} />
-                {!disabled && item.ref_links.length > 1 && (
+                {!inputDisabled && item.ref_links.length > 1 && (
                   <button type="button" className="btn btn-ghost btn-xs" onClick={() => onRemoveRefLink(lIdx)}>✕</button>
                 )}
               </div>
             ))}
-            {!disabled && (
+            {!inputDisabled && (
               <button type="button" className="btn btn-ghost btn-xs" style={{ alignSelf: 'flex-start' }} onClick={onAddRefLink}>
                 + Add Link
               </button>
@@ -546,6 +567,48 @@ function ItemRow({
           </div>
         </div>
 
+      </div>
+
+      {/* ── Per-item action bar ───────────────────────────── */}
+      <div style={{
+        marginTop: 14, paddingTop: 12,
+        borderTop: '1px solid var(--border-dim)',
+        display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap',
+      }}>
+        {showCancel && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={saving}
+            onClick={() => onAction('cancelled')}
+            title="Hold / Cancel this style (universal exit per the doc)"
+          >Cancel / Hold</button>
+        )}
+        {showReopen && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={saving}
+            onClick={() => onAction('draft')}
+            title="Re-open this style — moves it back to draft"
+          >Re-open</button>
+        )}
+        {showSaveDraft && !isCancelled && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={saving}
+            onClick={() => onAction('draft')}
+          >{saving ? 'Saving…' : 'Save Draft'}</button>
+        )}
+        {showSubmit && (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={saving}
+            onClick={() => onAction('submitted')}
+          >{saving ? 'Submitting…' : 'Submit for Approval'}</button>
+        )}
       </div>
     </div>
   )

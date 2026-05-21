@@ -49,9 +49,15 @@ create index if not exists weekly_plans_week_start_idx
 -- Reference photos and reference links live PER ITEM (each cut/style
 -- has its own visual references), not on the fabric itself.
 --
+-- Each item runs through its own approval lifecycle independently
+-- (the doc's Sadiqji Stage-1 approval is per-style, and "Hold/Cancel"
+-- is a universal exit available at any step).
+--
 -- `items`: jsonb array of
 --   { id, silhouette, gender, category, demographic_type,
---     photos:[url], ref_links:[url], style_code? }
+--     photos:[url], ref_links:[url],
+--     status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'cancelled',
+--     rejection_reason?, style_code? }
 create table if not exists public.weekly_plan_fabrics (
   id              uuid default gen_random_uuid() primary key,
   weekly_plan_id  uuid references public.weekly_plans(id) on delete cascade,
