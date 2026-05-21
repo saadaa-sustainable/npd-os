@@ -33,40 +33,46 @@ function localKey() {
   return Math.random().toString(36).slice(2)
 }
 
+// Each item is a single style cut from the parent fabric, with its
+// OWN reference photos + reference links (since the visual references
+// for different cuts of the same fabric will differ).
 const emptyItem = () => ({
   key: localKey(),
   silhouette: '',
   gender: '',
   category: '',
   demographic_type: '',
+  photos: [],          // UI shape: [{ url?, file? }]
+  ref_links: [''],
 })
 
 const emptyFabric = () => ({
   key: localKey(),
-  id: null,             // DB id; null = not yet saved
+  id: null,            // DB id; null = not yet saved
   name: '',
-  photos: [],           // UI shape: [{ url?, file? }]
-  ref_links: [''],      // start with one empty input
   items: [emptyItem()],
 })
 
-// Hydrate a fabric row from the DB into the UI shape.
+function hydrateItem(raw) {
+  return {
+    key:              raw.id || localKey(),
+    silhouette:       raw.silhouette       || '',
+    gender:           raw.gender           || '',
+    category:         raw.category         || '',
+    demographic_type: raw.demographic_type || '',
+    photos:    Array.isArray(raw.photos)    ? raw.photos.map(u => ({ url: u })) : [],
+    ref_links: Array.isArray(raw.ref_links) && raw.ref_links.length ? raw.ref_links : [''],
+  }
+}
+
 function hydrateFabric(row) {
   const items = Array.isArray(row.items) && row.items.length > 0
-    ? row.items.map(it => ({
-        key:              it.id || localKey(),
-        silhouette:       it.silhouette       || '',
-        gender:           it.gender           || '',
-        category:         it.category         || '',
-        demographic_type: it.demographic_type || '',
-      }))
+    ? row.items.map(hydrateItem)
     : [emptyItem()]
   return {
-    key:       row.id,
-    id:        row.id,
-    name:      row.name || '',
-    photos:    Array.isArray(row.photos)    ? row.photos.map(u => ({ url: u })) : [],
-    ref_links: Array.isArray(row.ref_links) && row.ref_links.length ? row.ref_links : [''],
+    key:   row.id,
+    id:    row.id,
+    name:  row.name || '',
     items,
   }
 }
@@ -129,33 +135,36 @@ function WeeklyPlanFormInner() {
     return arr.filter((_, i) => i !== fi)
   })
 
-  // ── photos ──────────────────────────────────────────────────
-  const addPhotos = (fi, files) => setFabricField(fi, 'photos', [
-    ...fabrics[fi].photos,
-    ...files.map(file => ({ file })),
-  ])
-  const removePhoto = (fi, pIdx) => setFabricField(fi, 'photos',
-    fabrics[fi].photos.filter((_, i) => i !== pIdx)
-  )
-
-  // ── ref links ───────────────────────────────────────────────
-  const setRefLink    = (fi, lIdx, v) => setFabricField(fi, 'ref_links',
-    fabrics[fi].ref_links.map((l, i) => i === lIdx ? v : l)
-  )
-  const addRefLink    = fi            => setFabricField(fi, 'ref_links', [...fabrics[fi].ref_links, ''])
-  const removeRefLink = (fi, lIdx)    => setFabricField(fi, 'ref_links',
-    fabrics[fi].ref_links.filter((_, i) => i !== lIdx)
-  )
-
-  // ── items ───────────────────────────────────────────────────
-  const updateItems = (fi, fn) => setFabricField(fi, 'items', fn(fabrics[fi].items))
-  const addItem     = fi               => updateItems(fi, items => [...items, emptyItem()])
-  const removeItem  = (fi, iIdx)       => updateItems(fi, items => items.filter((_, i) => i !== iIdx))
-  const setItemField = (fi, iIdx, k, v) => updateItems(fi, items => items.map((it, i) =>
-    i === iIdx ? (
+  // ── items helpers (operate on fabrics[fi].items) ────────────
+  const updateItems = (fi, fn) => setFabrics(arr => arr.map((f, i) =>
+    i === fi ? { ...f, items: fn(f.items) } : f
+  ))
+  const addItem    = fi             => updateItems(fi, items => [...items, emptyItem()])
+  const removeItem = (fi, ii)       => updateItems(fi, items => items.filter((_, i) => i !== ii))
+  const setItemField = (fi, ii, k, v) => updateItems(fi, items => items.map((it, i) =>
+    i === ii ? (
       // changing gender resets category since options depend on gender
       k === 'gender' ? { ...it, gender: v, category: '' } : { ...it, [k]: v }
     ) : it
+  ))
+
+  // ── per-item photos ─────────────────────────────────────────
+  const addItemPhotos = (fi, ii, files) => updateItems(fi, items => items.map((it, i) =>
+    i === ii ? { ...it, photos: [...it.photos, ...files.map(file => ({ file }))] } : it
+  ))
+  const removeItemPhoto = (fi, ii, pIdx) => updateItems(fi, items => items.map((it, i) =>
+    i === ii ? { ...it, photos: it.photos.filter((_, p) => p !== pIdx) } : it
+  ))
+
+  // ── per-item ref links ──────────────────────────────────────
+  const setItemRefLink    = (fi, ii, lIdx, v) => updateItems(fi, items => items.map((it, i) =>
+    i === ii ? { ...it, ref_links: it.ref_links.map((l, j) => j === lIdx ? v : l) } : it
+  ))
+  const addItemRefLink    = (fi, ii)          => updateItems(fi, items => items.map((it, i) =>
+    i === ii ? { ...it, ref_links: [...it.ref_links, ''] } : it
+  ))
+  const removeItemRefLink = (fi, ii, lIdx)    => updateItems(fi, items => items.map((it, i) =>
+    i === ii ? { ...it, ref_links: it.ref_links.filter((_, j) => j !== lIdx) } : it
   ))
 
   // ── persistence ─────────────────────────────────────────────
@@ -187,38 +196,41 @@ function WeeklyPlanFormInner() {
       await Promise.all(removedIds.map(id => deleteWeeklyPlanFabric(id)))
       setRemoved([])
 
-      // 3. For each fabric: upload pending photos → upsert row.
+      // 3. For each fabric: upload pending item photos → upsert row.
       for (let i = 0; i < fabrics.length; i++) {
         const f = fabrics[i]
-        const itemsClean = f.items
-          .map(it => ({
+
+        const itemsClean = await Promise.all(f.items.map(async it => {
+          const photoUrls = await Promise.all(it.photos.map(async p => {
+            if (p.url) return p.url
+            if (p.file) return await uploadWeeklyPlanImage(p.file, planId, f.key, it.key)
+            return null
+          }))
+          return {
             id:               it.key,
             silhouette:       it.silhouette       || '',
             gender:           it.gender           || '',
             category:         it.category         || '',
             demographic_type: it.demographic_type || '',
-          }))
-          // Drop wholly-blank item rows so they don't pollute storage.
-          .filter(it => it.silhouette || it.gender || it.category || it.demographic_type)
-
-        const photoUrls = await Promise.all(f.photos.map(async p => {
-          if (p.url) return p.url
-          if (p.file) return await uploadWeeklyPlanImage(p.file, planId, f.key)
-          return null
+            photos:           photoUrls.filter(Boolean),
+            ref_links:        it.ref_links.map(l => (l || '').trim()).filter(Boolean),
+          }
         }))
 
-        const refLinks = f.ref_links.map(l => (l || '').trim()).filter(Boolean)
+        // Drop wholly-blank item rows so they don't pollute storage.
+        const itemsKept = itemsClean.filter(it =>
+          it.silhouette || it.gender || it.category || it.demographic_type
+          || it.photos.length > 0 || it.ref_links.length > 0
+        )
 
         // Skip wholly-blank fabrics silently.
-        if (!f.name && photoUrls.length === 0 && refLinks.length === 0 && itemsClean.length === 0) continue
+        if (!f.name && itemsKept.length === 0) continue
 
         await upsertWeeklyPlanFabric({
           id:             f.id || undefined,
           weekly_plan_id: planId,
           name:           f.name || '',
-          photos:         photoUrls.filter(Boolean),
-          ref_links:      refLinks,
-          items:          itemsClean,
+          items:          itemsKept,
           sort_order:     i,
         })
       }
@@ -305,14 +317,14 @@ function WeeklyPlanFormInner() {
             canRemove={fabrics.length > 1}
             onSetField={(k, v) => setFabricField(fi, k, v)}
             onRemove={() => removeFabric(fi)}
-            onAddPhotos={files => addPhotos(fi, files)}
-            onRemovePhoto={pIdx => removePhoto(fi, pIdx)}
-            onSetRefLink={(lIdx, v) => setRefLink(fi, lIdx, v)}
-            onAddRefLink={() => addRefLink(fi)}
-            onRemoveRefLink={lIdx => removeRefLink(fi, lIdx)}
             onAddItem={() => addItem(fi)}
-            onRemoveItem={iIdx => removeItem(fi, iIdx)}
-            onSetItemField={(iIdx, k, v) => setItemField(fi, iIdx, k, v)}
+            onRemoveItem={ii => removeItem(fi, ii)}
+            onSetItemField={(ii, k, v) => setItemField(fi, ii, k, v)}
+            onAddItemPhotos={(ii, files) => addItemPhotos(fi, ii, files)}
+            onRemoveItemPhoto={(ii, pIdx) => removeItemPhoto(fi, ii, pIdx)}
+            onSetItemRefLink={(ii, lIdx, v) => setItemRefLink(fi, ii, lIdx, v)}
+            onAddItemRefLink={ii => addItemRefLink(fi, ii)}
+            onRemoveItemRefLink={(ii, lIdx) => removeItemRefLink(fi, ii, lIdx)}
           />
         ))}
 
@@ -347,13 +359,13 @@ function WeeklyPlanFormInner() {
   )
 }
 
-// ─── Fabric card (the major unit) ─────────────────────────────
+// ─── Fabric card (parent container, just name + items) ─────────
 function FabricCard({
   index, fabric, disabled, canRemove,
   onSetField, onRemove,
-  onAddPhotos, onRemovePhoto,
-  onSetRefLink, onAddRefLink, onRemoveRefLink,
   onAddItem, onRemoveItem, onSetItemField,
+  onAddItemPhotos, onRemoveItemPhoto,
+  onSetItemRefLink, onAddItemRefLink, onRemoveItemRefLink,
 }) {
   return (
     <div className="card" style={{ marginBottom: 16 }}>
@@ -383,53 +395,24 @@ function FabricCard({
               placeholder="e.g. Cotton Flax 80/20" />
           </div>
 
-          <div className="form-group form-full">
-            <label className="form-label">Reference Photos</label>
-            <PhotoGrid
-              photos={fabric.photos}
-              disabled={disabled}
-              onAdd={onAddPhotos}
-              onRemove={onRemovePhoto}
-            />
-            <div className="form-hint">Add as many as you like. Each is auto-resized to ~1600px and re-encoded as JPEG.</div>
-          </div>
-
-          <div className="form-group form-full">
-            <label className="form-label">Reference Links</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {fabric.ref_links.map((link, lIdx) => (
-                <div key={lIdx} style={{ display: 'flex', gap: 6 }}>
-                  <input className="form-input" value={link}
-                    disabled={disabled}
-                    onChange={e => onSetRefLink(lIdx, e.target.value)}
-                    placeholder="Pinterest / competitor URL…"
-                    style={{ flex: 1 }} />
-                  {!disabled && fabric.ref_links.length > 1 && (
-                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => onRemoveRefLink(lIdx)}>✕</button>
-                  )}
-                </div>
-              ))}
-              {!disabled && (
-                <button type="button" className="btn btn-ghost btn-xs" style={{ alignSelf: 'flex-start' }} onClick={onAddRefLink}>
-                  + Add Link
-                </button>
-              )}
-            </div>
-          </div>
-
           {/* ── Items under this fabric ─────────────────────── */}
           <div className="form-section-head">Items in this fabric</div>
 
-          <div className="form-full" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {fabric.items.map((it, iIdx) => (
+          <div className="form-full" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {fabric.items.map((it, ii) => (
               <ItemRow
                 key={it.key}
-                index={iIdx}
+                index={ii}
                 item={it}
                 disabled={disabled}
                 canRemove={fabric.items.length > 1}
-                onSetField={(k, v) => onSetItemField(iIdx, k, v)}
-                onRemove={() => onRemoveItem(iIdx)}
+                onSetField={(k, v) => onSetItemField(ii, k, v)}
+                onRemove={() => onRemoveItem(ii)}
+                onAddPhotos={files => onAddItemPhotos(ii, files)}
+                onRemovePhoto={pIdx => onRemoveItemPhoto(ii, pIdx)}
+                onSetRefLink={(lIdx, v) => onSetItemRefLink(ii, lIdx, v)}
+                onAddRefLink={() => onAddItemRefLink(ii)}
+                onRemoveRefLink={lIdx => onRemoveItemRefLink(ii, lIdx)}
               />
             ))}
 
@@ -446,8 +429,13 @@ function FabricCard({
   )
 }
 
-// ─── Item row (a single style cut from this fabric) ────────────
-function ItemRow({ index, item, disabled, canRemove, onSetField, onRemove }) {
+// ─── Item row (style cut from this fabric, with own refs) ──────
+function ItemRow({
+  index, item, disabled, canRemove,
+  onSetField, onRemove,
+  onAddPhotos, onRemovePhoto,
+  onSetRefLink, onAddRefLink, onRemoveRefLink,
+}) {
   const catOptions = item.gender ? (CATEGORY_OPTIONS[item.gender] || []) : []
   const [demoCustom, setDemoCustom] = useState(
     !!item.demographic_type && !DEMOGRAPHIC_OPTIONS.includes(item.demographic_type)
@@ -520,6 +508,42 @@ function ItemRow({ index, item, disabled, canRemove, onSetField, onRemove }) {
               onChange={e => onSetField('demographic_type', e.target.value)}
               placeholder="Type a new demographic…" autoFocus />
           )}
+        </div>
+
+        {/* ── Reference Photos (per item) ────────────────── */}
+        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+          <label className="form-label">Reference Photos</label>
+          <PhotoGrid
+            photos={item.photos}
+            disabled={disabled}
+            onAdd={onAddPhotos}
+            onRemove={onRemovePhoto}
+          />
+          <div className="form-hint">Add as many as you like. Each is auto-resized to ~1600px and re-encoded as JPEG.</div>
+        </div>
+
+        {/* ── Reference Links (per item) ────────────────── */}
+        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+          <label className="form-label">Reference Links</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {item.ref_links.map((link, lIdx) => (
+              <div key={lIdx} style={{ display: 'flex', gap: 6 }}>
+                <input className="form-input" value={link}
+                  disabled={disabled}
+                  onChange={e => onSetRefLink(lIdx, e.target.value)}
+                  placeholder="Pinterest / competitor URL…"
+                  style={{ flex: 1 }} />
+                {!disabled && item.ref_links.length > 1 && (
+                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => onRemoveRefLink(lIdx)}>✕</button>
+                )}
+              </div>
+            ))}
+            {!disabled && (
+              <button type="button" className="btn btn-ghost btn-xs" style={{ alignSelf: 'flex-start' }} onClick={onAddRefLink}>
+                + Add Link
+              </button>
+            )}
+          </div>
         </div>
 
       </div>

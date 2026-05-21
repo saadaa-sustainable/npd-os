@@ -44,26 +44,28 @@ create table if not exists public.weekly_plans (
 create index if not exists weekly_plans_week_start_idx
   on public.weekly_plans (week_start_date desc);
 
--- Fabric is the major unit. Each fabric belongs to a weekly plan,
--- carries its own reference photos + reference links, and contains
--- many "items" (silhouette/gender/category/demographic_type), since
--- one fabric purchase typically gets cut into multiple styles.
+-- Fabric is the major unit (a fabric purchase / material identifier).
+-- It contains many "items" — one per style cut from this fabric.
+-- Reference photos and reference links live PER ITEM (each cut/style
+-- has its own visual references), not on the fabric itself.
 --
--- `photos`    : jsonb array of URL strings.
--- `ref_links` : jsonb array of URL strings.
--- `items`     : jsonb array of
---               { id, silhouette, gender, category, demographic_type, style_code? }
+-- `items`: jsonb array of
+--   { id, silhouette, gender, category, demographic_type,
+--     photos:[url], ref_links:[url], style_code? }
 create table if not exists public.weekly_plan_fabrics (
   id              uuid default gen_random_uuid() primary key,
   weekly_plan_id  uuid references public.weekly_plans(id) on delete cascade,
   name            text,
-  photos          jsonb not null default '[]'::jsonb,
-  ref_links       jsonb not null default '[]'::jsonb,
   items           jsonb not null default '[]'::jsonb,
   sort_order      integer default 0,
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
 );
+
+-- If the table was created by an earlier version of this migration with
+-- photos/ref_links columns on the fabric, drop them — they live in items now.
+alter table public.weekly_plan_fabrics drop column if exists photos;
+alter table public.weekly_plan_fabrics drop column if exists ref_links;
 
 create index if not exists wpf_plan_idx
   on public.weekly_plan_fabrics (weekly_plan_id, sort_order);
