@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import AppShell from '@/components/layout/AppShell'
 import { useRequireAuth } from '@/lib/auth-context'
 import { approveStyle, rejectStyle, supabase } from '@/lib/supabase'
@@ -24,7 +24,7 @@ export default function ApprovalsPage() {
   const [rejectModal, setRejectModal] = useState(null) // styleId
   const [rejectReason, setRejectReason] = useState('')
 
-  const load = async (t = tab) => {
+  const load = useCallback(async (t = tab) => {
     setLoading(true)
     let q = supabase
       .from('styles')
@@ -36,9 +36,13 @@ export default function ApprovalsPage() {
     const { data } = await q
     setStyles(data || [])
     setLoading(false)
-  }
+  }, [tab])
 
-  useEffect(() => { if (user) load() }, [user])
+  useEffect(() => {
+    if (!user) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load()
+  }, [user, load])
 
   const switchTab = t => { setTab(t); load(t) }
 

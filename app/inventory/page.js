@@ -9,6 +9,12 @@ import { useToast } from '@/components/Toast'
 const INV_FIELDS = ['colour','xs','s','m','l','xl','xxl','pcs_per_colour','cons_54','cons_56','buy_price','mrp']
 const INV_LABELS = ['Colour','XS','S','M','L','XL','2XL','Pcs/Col','Cons 54"','Cons 56"','Buy ₹','MRP ₹']
 
+const emptyRow = styleId => ({
+  id: null, style_id: styleId, colour: '',
+  xs: 0, s: 0, m: 0, l: 0, xl: 0, xxl: 0,
+  pcs_per_colour: 0, cons_54: '', cons_56: '', buy_price: '', mrp: '',
+})
+
 export default function InventoryPage() {
   const user  = useRequireAuth(['founder','maker','checker'])
   const toast = useToast()
@@ -30,12 +36,6 @@ export default function InventoryPage() {
       setLoading(false)
     })
   }, [user])
-
-  const emptyRow = styleId => ({
-    id: null, style_id: styleId, colour: '',
-    xs: 0, s: 0, m: 0, l: 0, xl: 0, xxl: 0,
-    pcs_per_colour: 0, cons_54: '', cons_56: '', buy_price: '', mrp: '',
-  })
 
   const addRow = styleId => setRows(r => ({ ...r, [styleId]: [...(r[styleId]||[]), emptyRow(styleId)] }))
 

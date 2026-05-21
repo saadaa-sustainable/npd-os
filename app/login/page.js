@@ -20,7 +20,7 @@ export default function LoginPage() {
         router.push(ROLE_PAGES[u.role] || '/styles')
       }
     })
-  }, [])
+  }, [router, setUser])
 
   const handleSubmit = async e => {
     e.preventDefault()

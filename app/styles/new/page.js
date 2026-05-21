@@ -8,7 +8,7 @@ import {
   getStyle, createStyle, updateStyle, addAuditLog,
   CATEGORY_OPTIONS,
   getMeasurements, replaceMeasurements, uploadSpecImage,
-  getStyleCodeSettings, composeStyleCodeSegments, generateNextStyleCode,
+  getStyleCodeSettings, getFabrics, composeStyleCodeSegments, generateNextStyleCode,
 } from '@/lib/supabase'
 import { useToast } from '@/components/Toast'
 
@@ -70,8 +70,8 @@ function NewStyleInner() {
 
   // Load admin-managed style code rules once.
   useEffect(() => {
-    getStyleCodeSettings()
-      .then(setCodeRules)
+    Promise.all([getStyleCodeSettings(), getFabrics({ codedOnly: true })])
+      .then(([settings, fabrics]) => setCodeRules({ ...settings, fabric: fabrics }))
       .catch(() => {})
   }, [])
 
@@ -124,7 +124,7 @@ function NewStyleInner() {
   const onNameChange = e => {
     set('name', e.target.value)
     // Style code is now derived from Gender / Category / Fabric / Silhouette /
-    // Demographic via Admin → Style Code Settings, not from the product name.
+    // Style code comes from Gender + Fabric + Silhouette, not product name.
   }
 
   // ── size set helpers ────────────────────────────────────────
@@ -325,7 +325,7 @@ function NewStyleInner() {
                 <div className="form-group form-full">
                   <label className="form-label">Product Name <span className="req">*</span></label>
                   <input className="form-input" value={form.name} onChange={onNameChange} placeholder="e.g. Saadaa Airy Linen Flared Shirt Dress" />
-                  <div className="form-hint">Use the full descriptive name — style code is auto-generated from this</div>
+                  <div className="form-hint">Use the full descriptive name. Style code is auto-generated from the fields below.</div>
                 </div>
 
                 <div className="form-group">
@@ -365,7 +365,9 @@ function NewStyleInner() {
                   <label className="form-label">Fabric <span className="req">*</span></label>
                   <select className="form-select" value={form.fabric_platform} onChange={e => set('fabric_platform', e.target.value)}>
                     <option value="">Select…</option>
-                    {codeRulesOptions(codeRules.fabric, form.fabric_platform, []).map(o => <option key={o}>{o}</option>)}
+                    {fabricOptions(codeRules.fabric, form.fabric_platform).map(o => (
+                      <option key={o.name} value={o.name}>{o.name}{o.code ? ` (${o.code})` : ''}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -790,6 +792,14 @@ function codeRulesOptions(ruleRows, current, fallback) {
     if (!out.some(v => v.toLowerCase() === String(f).toLowerCase())) out.push(f)
   }
   if (current && !out.some(v => v.toLowerCase() === current.toLowerCase())) out.push(current)
+  return out
+}
+
+function fabricOptions(fabrics, current) {
+  const out = [...(fabrics || [])]
+  if (current && !out.some(f => f.name.toLowerCase() === current.toLowerCase())) {
+    out.push({ name: current, code: null })
+  }
   return out
 }
 

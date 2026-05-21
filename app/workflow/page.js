@@ -12,12 +12,12 @@ const stages = [
     deps: null,
     substages: [
       { icon: '📝', name: 'Product Naming', detail: 'Full descriptive name e.g. "Women Cotton Straight Pant"', tag: 'Maker' },
-      { icon: '🔑', name: 'Auto Style Code Generation', detail: 'System generates code from name: SD/SM prefix + consonants e.g. SDCSP, SMJRT', tag: 'Auto' },
+      { icon: '🔑', name: 'Auto Style Code Generation', detail: 'System generates 7-letter codes from gender, fabric, silhouette, and AA-ZZ sequence', tag: 'Auto' },
       { icon: '🏷️', name: 'Product Classification', detail: 'Gender · Category · Fabric Platform · Season · Launch Collection', tag: 'Maker' },
       { icon: '📄', name: 'Product Brief Creation', detail: 'Product intent, target customer, silhouette direction, references', tag: 'Maker' },
       { icon: '✅', name: 'Maker Submission → Checker Approval', detail: 'Checker reviews all fields and approves before moving to Stage 2', tag: 'Checker' },
     ],
-    note: { color: 'primary', title: '💡 Style Code Convention', text: 'SD = Saadaa Women  |  SM = Saadaa Men\nFollowed by consonants of garment type\nSDCP = Women Cotton Pant  ·  SDCSP = Women Cotton Straight Pant  ·  SMJRT = Men Relaxed Tee' }
+    note: { color: 'primary', title: '💡 Style Code Convention', text: 'Format: S + Gender + Fabric + Silhouette + AA-ZZ\nExample: SDCOSAA = Saadaa + Women(D) + Cotton(CO) + Shirt(S) + first code in that bucket' }
   },
   {
     num: 2, cls: 'sc-2', color: 'purple', badge: 'Design Gate',

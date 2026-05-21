@@ -4,114 +4,123 @@ import { useEffect, useMemo, useState } from 'react'
 import AppShell from '@/components/layout/AppShell'
 import { useRequireAuth } from '@/lib/auth-context'
 import {
-  getStyleCodeSettings,
-  createStyleCodeRule,
-  updateStyleCodeRule,
-  deleteStyleCodeRule,
-  composeStyleCodeSegments,
-  STYLE_CODE_SEGMENTS,
-  STYLE_CODE_PREFIX,
+  getStyleCodeSettings, createStyleCodeRule, updateStyleCodeRule, deleteStyleCodeRule,
+  getFibers, createFiber, updateFiber, deleteFiber,
+  getFabrics, createFabric, updateFabric, deleteFabric,
+  composeStyleCodeSegments, STYLE_CODE_PREFIX,
 } from '@/lib/supabase'
 import { useToast } from '@/components/Toast'
 
-const SEGMENT_META = {
-  gender:      { label: 'Gender',     hint: 'Fixed by spec — D=Women, M=Men, U=Unisex. Avoid changing the codes; long-form label is editable.', placeholder: 'e.g. Women',  codeHint: 'D / M / U' },
-  fabric:      { label: 'Fabric',     hint: 'Single-letter code per fabric. Max 26 (A–Z).',                                                     placeholder: 'e.g. Cotton', codeHint: 'A single letter, e.g. C' },
-  silhouette:  { label: 'Silhouette', hint: 'Single-letter code per silhouette. Max 26 (A–Z).',                                                 placeholder: 'e.g. Shirt',  codeHint: 'A single letter, e.g. S' },
-}
-
-const EMPTY_DRAFT = { value: '', code: '', sort_order: 0 }
+const EMPTY_RULE = { value: '', code: '', sort_order: 0 }
+const EMPTY_FIBER = { name: '', code: '', sort_order: 0 }
+const EMPTY_FABRIC = { name: '', composition: '', code: '', sort_order: 0 }
 
 export default function StyleCodeSettingsPage() {
-  const user  = useRequireAuth(['founder'])
+  const user = useRequireAuth(['founder'])
   const toast = useToast()
-
-  const [rules,   setRules]   = useState(() => Object.fromEntries(STYLE_CODE_SEGMENTS.map(s => [s, []])))
+  const [settings, setSettings] = useState({ gender: [], silhouette: [] })
+  const [fibers, setFibers] = useState([])
+  const [fabrics, setFabrics] = useState([])
   const [loading, setLoading] = useState(true)
-  const [drafts,  setDrafts]  = useState(() => Object.fromEntries(STYLE_CODE_SEGMENTS.map(s => [s, { ...EMPTY_DRAFT }])))
+  const [drafts, setDrafts] = useState({
+    gender: { ...EMPTY_RULE },
+    silhouette: { ...EMPTY_RULE },
+    fiber: { ...EMPTY_FIBER },
+    fabric: { ...EMPTY_FABRIC },
+  })
 
   const reload = async () => {
     setLoading(true)
-    try { setRules(await getStyleCodeSettings()) }
-    catch (e) { toast(e.message, 'error') }
-    finally { setLoading(false) }
+    try {
+      const [nextSettings, nextFibers, nextFabrics] = await Promise.all([
+        getStyleCodeSettings(),
+        getFibers(),
+        getFabrics(),
+      ])
+      setSettings(nextSettings)
+      setFibers(nextFibers)
+      setFabrics(nextFabrics)
+    } catch (e) {
+      toast(e.message, 'error')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { if (user) reload() }, [user])
+  useEffect(() => {
+    if (!user) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    reload()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
 
-  // Live preview — show what a code with one example value per segment looks like.
   const preview = useMemo(() => {
-    const sel = {}
-    for (const seg of STYLE_CODE_SEGMENTS) {
-      sel[seg] = rules[seg]?.[0]?.value || ''
-    }
-    return composeStyleCodeSegments(sel, rules).prefix
-  }, [rules])
+    const firstCodedFabric = fabrics.find(f => f.code)
+    const { prefix } = composeStyleCodeSegments({
+      gender: settings.gender?.[0]?.value || '',
+      fabric: firstCodedFabric?.name || '',
+      silhouette: settings.silhouette?.[0]?.value || '',
+    }, { ...settings, fabric: fabrics })
+    return `${prefix}AA`
+  }, [settings, fabrics])
 
-  const setDraft = (segment, patch) =>
-    setDrafts(d => ({ ...d, [segment]: { ...d[segment], ...patch } }))
+  const setDraft = (key, patch) =>
+    setDrafts(d => ({ ...d, [key]: { ...d[key], ...patch } }))
 
-  const handleAdd = async (segment) => {
-    const draft = drafts[segment]
-    if (!draft.value.trim() || !draft.code.trim()) {
-      toast('Both value and code are required', 'error'); return
-    }
+  const addRule = async (segment) => {
     try {
       await createStyleCodeRule({
         segment,
-        value: draft.value,
-        code:  draft.code,
-        sort_order: (rules[segment]?.length || 0) + 1,
+        value: drafts[segment].value,
+        code: drafts[segment].code,
+        sort_order: (settings[segment]?.length || 0) + 1,
       })
-      setDraft(segment, { ...EMPTY_DRAFT })
+      setDraft(segment, { ...EMPTY_RULE })
       await reload()
-      toast(`${SEGMENT_META[segment].label} rule added ✓`, 'success')
+      toast('Rule added', 'success')
     } catch (e) { toast(e.message, 'error') }
   }
 
-  const handleEdit = async (rule, patch) => {
+  const addFiber = async () => {
     try {
-      await updateStyleCodeRule(rule.id, patch)
+      await createFiber({ ...drafts.fiber, sort_order: fibers.length + 1 })
+      setDraft('fiber', { ...EMPTY_FIBER })
       await reload()
-    } catch (e) { toast(e.message, 'error'); await reload() }
+      toast('Fiber added', 'success')
+    } catch (e) { toast(e.message, 'error') }
   }
 
-  const handleDelete = async (rule) => {
-    if (!confirm(`Delete "${rule.value}" → ${rule.code}?`)) return
+  const addFabric = async () => {
     try {
-      await deleteStyleCodeRule(rule.id)
+      await createFabric({ ...drafts.fabric, sort_order: fabrics.length + 1 })
+      setDraft('fabric', { ...EMPTY_FABRIC })
       await reload()
-      toast('Rule deleted ✓', 'success')
+      toast('Fabric added', 'success')
     } catch (e) { toast(e.message, 'error') }
   }
 
   if (!user) return null
 
   return (
-    <AppShell title="Style Code Settings" subtitle="Rules that auto-generate unique product style codes">
+    <AppShell title="Style Code Settings" subtitle="Fabric library and rules for auto-generated product codes">
       <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 800, marginBottom: 4 }}>Style Code Settings</div>
-            <div style={{ fontSize: 13, color: 'var(--t3)', maxWidth: 720 }}>
-              Define the single-letter codes for <strong>Gender</strong>, <strong>Fabric</strong>, and <strong>Silhouette</strong>. When a maker creates a new style, the 6-letter code is generated automatically and is unique for every product. Only Admin can edit these rules.
-            </div>
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 800, marginBottom: 4 }}>Style Code Settings</div>
+          <div style={{ fontSize: 13, color: 'var(--t3)', maxWidth: 760 }}>
+            Format: <strong>S + Gender + Fabric + Silhouette + AA-ZZ</strong>. Fabric codes are exactly two letters; fabrics without codes remain saved here but are hidden from New Style until coded.
           </div>
         </div>
 
-        {/* Preview card */}
-        <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card" style={{ marginBottom: 20 }}>
           <div className="card-body">
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 8 }}>
-              Format — 6 letters, no separators
+              7-letter format
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 700, letterSpacing: 1.5, color: 'var(--t1)' }}>
-              {STYLE_CODE_PREFIX}<span style={{ color: 'var(--t3)' }}>G</span><span style={{ color: 'var(--t3)' }}>F</span><span style={{ color: 'var(--t3)' }}>S</span><span style={{ color: 'var(--t3)' }}>AA</span>
+              {STYLE_CODE_PREFIX}<span style={{ color: 'var(--t3)' }}>G</span><span style={{ color: 'var(--t3)' }}>FF</span><span style={{ color: 'var(--t3)' }}>S</span><span style={{ color: 'var(--t3)' }}>AA</span>
             </div>
             <div style={{ marginTop: 10, fontSize: 12, color: 'var(--t3)' }}>
-              S = Saadaa · G = Gender · F = Fabric · S = Silhouette · AA–ZZ = sequence within bucket (676 codes per bucket).
-              <br/>Example with current rules: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--t1)' }}>{preview}AA</span>
+              Example with first available coded values: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--t1)' }}>{preview}</span>
             </div>
           </div>
         </div>
@@ -120,19 +129,42 @@ export default function StyleCodeSettingsPage() {
           <div className="spinner-wrap"><div className="spinner"/></div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {STYLE_CODE_SEGMENTS.map(segment => (
-              <SegmentCard
-                key={segment}
-                segment={segment}
-                meta={SEGMENT_META[segment]}
-                rows={rules[segment] || []}
-                draft={drafts[segment]}
-                setDraft={patch => setDraft(segment, patch)}
-                onAdd={() => handleAdd(segment)}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-              />
-            ))}
+            <RuleCard
+              title="Gender Codes"
+              hint="One-letter codes. Current spec: D=Women, M=Men, U=Unisex."
+              rows={settings.gender || []}
+              draft={drafts.gender}
+              setDraft={patch => setDraft('gender', patch)}
+              onAdd={() => addRule('gender')}
+              onEdit={(row, patch) => updateStyleCodeRule(row.id, patch).then(reload).catch(e => toast(e.message, 'error'))}
+              onDelete={row => deleteStyleCodeRule(row.id).then(reload).catch(e => toast(e.message, 'error'))}
+            />
+            <RuleCard
+              title="Silhouette Codes"
+              hint="One-letter codes for silhouettes such as Shirt, Dress, Pant, Tee."
+              rows={settings.silhouette || []}
+              draft={drafts.silhouette}
+              setDraft={patch => setDraft('silhouette', patch)}
+              onAdd={() => addRule('silhouette')}
+              onEdit={(row, patch) => updateStyleCodeRule(row.id, patch).then(reload).catch(e => toast(e.message, 'error'))}
+              onDelete={row => deleteStyleCodeRule(row.id).then(reload).catch(e => toast(e.message, 'error'))}
+            />
+            <FiberCard
+              rows={fibers}
+              draft={drafts.fiber}
+              setDraft={patch => setDraft('fiber', patch)}
+              onAdd={addFiber}
+              onEdit={(row, patch) => updateFiber(row.id, patch).then(reload).catch(e => toast(e.message, 'error'))}
+              onDelete={row => deleteFiber(row.id).then(reload).catch(e => toast(e.message, 'error'))}
+            />
+            <FabricCard
+              rows={fabrics}
+              draft={drafts.fabric}
+              setDraft={patch => setDraft('fabric', patch)}
+              onAdd={addFabric}
+              onEdit={(row, patch) => updateFabric(row.id, patch).then(reload).catch(e => toast(e.message, 'error'))}
+              onDelete={row => deleteFabric(row.id).then(reload).catch(e => toast(e.message, 'error'))}
+            />
           </div>
         )}
       </div>
@@ -140,73 +172,23 @@ export default function StyleCodeSettingsPage() {
   )
 }
 
-function SegmentCard({ segment, meta, rows, draft, setDraft, onAdd, onEdit, onDelete }) {
+function RuleCard({ title, hint, rows, draft, setDraft, onAdd, onEdit, onDelete }) {
   return (
     <div className="card" style={{ padding: 0 }}>
-      <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div className="card-title">{meta.label}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 2 }}>{meta.hint}</div>
-        </div>
-        <span className="badge" style={{ fontFamily: 'var(--font-mono)' }}>{rows.length}</span>
-      </div>
-
+      <CardHeader title={title} hint={hint} count={rows.length} />
       <div className="table-wrap">
         <table>
-          <thead>
-            <tr>
-              <th style={{ width: 50 }}>#</th>
-              <th>Value</th>
-              <th style={{ width: 140 }}>Short Code</th>
-              <th style={{ width: 100 }}>Sort</th>
-              <th style={{ width: 80 }}></th>
-            </tr>
-          </thead>
+          <thead><tr><th>#</th><th>Value</th><th>Code</th><th>Sort</th><th></th></tr></thead>
           <tbody>
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={5} style={{ textAlign: 'center', color: 'var(--t3)', padding: '20px 0', fontSize: 13 }}>
-                  No {meta.label.toLowerCase()} rules yet — add the first one below.
-                </td>
-              </tr>
-            )}
             {rows.map((r, i) => (
-              <EditableRow
-                key={r.id}
-                index={i + 1}
-                rule={r}
-                onSave={patch => onEdit(r, patch)}
-                onDelete={() => onDelete(r)}
-              />
+              <RuleRow key={r.id} index={i + 1} row={r} onSave={patch => onEdit(r, patch)} onDelete={() => onDelete(r)} />
             ))}
-            {/* Add row */}
             <tr style={{ background: 'var(--raised)' }}>
-              <td style={{ color: 'var(--t3)', fontSize: 12, textAlign: 'center' }}>+</td>
-              <td>
-                <input
-                  className="form-input"
-                  style={{ padding: '6px 10px', fontSize: 13 }}
-                  value={draft.value}
-                  onChange={e => setDraft({ value: e.target.value })}
-                  placeholder={meta.placeholder}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onAdd() } }}
-                />
-              </td>
-              <td>
-                <input
-                  className="form-input code-field"
-                  style={{ padding: '6px 10px', fontSize: 13, textTransform: 'uppercase', textAlign: 'center', letterSpacing: 2 }}
-                  value={draft.code}
-                  maxLength={1}
-                  onChange={e => setDraft({ code: e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 1) })}
-                  placeholder={meta.codeHint}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onAdd() } }}
-                />
-              </td>
-              <td style={{ color: 'var(--t3)', fontSize: 12 }}>auto</td>
-              <td>
-                <button type="button" className="btn btn-primary btn-xs" onClick={onAdd}>Add</button>
-              </td>
+              <td>+</td>
+              <td><input className="form-input" value={draft.value} onChange={e => setDraft({ value: e.target.value })} placeholder="Value" /></td>
+              <td><CodeInput value={draft.code} maxLength={1} onChange={code => setDraft({ code })} placeholder="A" /></td>
+              <td className="td-muted">auto</td>
+              <td><button type="button" className="btn btn-primary btn-xs" onClick={onAdd}>Add</button></td>
             </tr>
           </tbody>
         </table>
@@ -215,59 +197,122 @@ function SegmentCard({ segment, meta, rows, draft, setDraft, onAdd, onEdit, onDe
   )
 }
 
-function EditableRow({ index, rule, onSave, onDelete }) {
-  const [value, setValue] = useState(rule.value)
-  const [code,  setCode]  = useState(rule.code)
-  const [sort,  setSort]  = useState(rule.sort_order ?? 0)
+function FiberCard({ rows, draft, setDraft, onAdd, onEdit, onDelete }) {
+  return (
+    <div className="card" style={{ padding: 0 }}>
+      <CardHeader title="Fibers" hint="Reference library used for compositions. These codes are not used directly in the final style code." count={rows.length} />
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Name</th><th>Fiber Code</th><th>Sort</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <FiberRow key={r.id} index={i + 1} row={r} onSave={patch => onEdit(r, patch)} onDelete={() => onDelete(r)} />
+            ))}
+            <tr style={{ background: 'var(--raised)' }}>
+              <td>+</td>
+              <td><input className="form-input" value={draft.name} onChange={e => setDraft({ name: e.target.value })} placeholder="Cotton" /></td>
+              <td><CodeInput value={draft.code} maxLength={4} onChange={code => setDraft({ code })} placeholder="CO" /></td>
+              <td className="td-muted">auto</td>
+              <td><button type="button" className="btn btn-primary btn-xs" onClick={onAdd}>Add</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
 
-  useEffect(() => { setValue(rule.value); setCode(rule.code); setSort(rule.sort_order ?? 0) }, [rule.id, rule.value, rule.code, rule.sort_order])
+function FabricCard({ rows, draft, setDraft, onAdd, onEdit, onDelete }) {
+  return (
+    <div className="card" style={{ padding: 0 }}>
+      <CardHeader title="Fabrics" hint="Actual brand fabric library. Only rows with a 2-letter code appear in New Style." count={rows.length} />
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Fabric Name</th><th>Composition</th><th>Style Code</th><th>Sort</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <FabricRow key={r.id} index={i + 1} row={r} onSave={patch => onEdit(r, patch)} onDelete={() => onDelete(r)} />
+            ))}
+            <tr style={{ background: 'var(--raised)' }}>
+              <td>+</td>
+              <td><input className="form-input" value={draft.name} onChange={e => setDraft({ name: e.target.value })} placeholder="Poplin" /></td>
+              <td><input className="form-input" value={draft.composition} onChange={e => setDraft({ composition: e.target.value })} placeholder="100% Cotton" /></td>
+              <td><CodeInput value={draft.code} maxLength={2} onChange={code => setDraft({ code })} placeholder="CO" /></td>
+              <td className="td-muted">auto</td>
+              <td><button type="button" className="btn btn-primary btn-xs" onClick={onAdd}>Add</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
 
-  const dirty = value !== rule.value || code !== rule.code || Number(sort) !== Number(rule.sort_order ?? 0)
+function CardHeader({ title, hint, count }) {
+  return (
+    <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div>
+        <div className="card-title">{title}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 2 }}>{hint}</div>
+      </div>
+      <span className="badge" style={{ fontFamily: 'var(--font-mono)' }}>{count}</span>
+    </div>
+  )
+}
 
+function RuleRow({ index, row, onSave, onDelete }) {
+  return <EditableRow index={index} row={row} fields={['value', 'code', 'sort_order']} codeMax={1} onSave={onSave} onDelete={onDelete} />
+}
+
+function FiberRow({ index, row, onSave, onDelete }) {
+  return <EditableRow index={index} row={row} fields={['name', 'code', 'sort_order']} codeMax={4} onSave={onSave} onDelete={onDelete} />
+}
+
+function FabricRow({ index, row, onSave, onDelete }) {
+  return <EditableRow index={index} row={row} fields={['name', 'composition', 'code', 'sort_order']} codeMax={2} onSave={onSave} onDelete={onDelete} />
+}
+
+function EditableRow({ index, row, fields, codeMax, onSave, onDelete }) {
+  const [draft, setDraft] = useState(() => ({ ...row, code: row.code || '', composition: row.composition || '' }))
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDraft({ ...row, code: row.code || '', composition: row.composition || '' })
+  }, [row])
+
+  const set = (k, v) => setDraft(d => ({ ...d, [k]: v }))
   const commit = () => {
-    if (!dirty) return
-    if (!value.trim() || !code.trim()) return
-    onSave({ value, code, sort_order: Number(sort) || 0 })
+    const patch = {}
+    for (const f of fields) if ((draft[f] ?? '') !== (row[f] ?? '')) patch[f] = draft[f]
+    if (Object.keys(patch).length) onSave(patch)
   }
 
   return (
     <tr>
-      <td style={{ color: 'var(--t3)', fontSize: 12, textAlign: 'center' }}>{index}</td>
-      <td>
-        <input
-          className="form-input"
-          style={{ padding: '6px 10px', fontSize: 13 }}
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          onBlur={commit}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } }}
-        />
-      </td>
-      <td>
-        <input
-          className="form-input code-field"
-          style={{ padding: '6px 10px', fontSize: 13, textTransform: 'uppercase', textAlign: 'center', letterSpacing: 2 }}
-          value={code}
-          maxLength={1}
-          onChange={e => setCode(e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 1))}
-          onBlur={commit}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } }}
-        />
-      </td>
-      <td>
-        <input
-          className="form-input"
-          style={{ padding: '6px 10px', fontSize: 13, width: 80 }}
-          type="number"
-          value={sort}
-          onChange={e => setSort(e.target.value)}
-          onBlur={commit}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } }}
-        />
-      </td>
-      <td>
-        <button type="button" className="btn btn-ghost btn-xs" onClick={onDelete} title="Delete rule">✕</button>
-      </td>
+      <td style={{ color: 'var(--t3)', fontSize: 12 }}>{index}</td>
+      {fields.map(f => f === 'code' ? (
+        <td key={f}><CodeInput value={draft.code || ''} maxLength={codeMax} onChange={code => set('code', code)} onBlur={commit} /></td>
+      ) : f === 'sort_order' ? (
+        <td key={f}><input className="form-input" style={cellInputStyle} type="number" value={draft.sort_order ?? 0} onChange={e => set('sort_order', e.target.value)} onBlur={commit} /></td>
+      ) : (
+        <td key={f}><input className="form-input" style={cellInputStyle} value={draft[f] || ''} onChange={e => set(f, e.target.value)} onBlur={commit} /></td>
+      ))}
+      <td><button type="button" className="btn btn-ghost btn-xs" onClick={onDelete} title="Delete">Delete</button></td>
     </tr>
   )
 }
+
+function CodeInput({ value, maxLength, onChange, onBlur, placeholder }) {
+  return (
+    <input
+      className="form-input code-field"
+      style={{ ...cellInputStyle, textTransform: 'uppercase', textAlign: 'center', letterSpacing: 2, width: maxLength === 1 ? 90 : 110 }}
+      value={value || ''}
+      maxLength={maxLength}
+      placeholder={placeholder}
+      onChange={e => onChange(e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, maxLength))}
+      onBlur={onBlur}
+    />
+  )
+}
+
+const cellInputStyle = { padding: '6px 10px', fontSize: 13 }
