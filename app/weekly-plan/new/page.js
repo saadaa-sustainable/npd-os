@@ -6,9 +6,9 @@ import AppShell from '@/components/layout/AppShell'
 import { useRequireAuth } from '@/lib/auth-context'
 import { useToast } from '@/components/Toast'
 import {
-  getWeeklyPlan, getWeeklyPlanEntries,
+  getWeeklyPlan, getWeeklyPlanFabrics,
   createWeeklyPlan, updateWeeklyPlan,
-  upsertWeeklyPlanEntry, deleteWeeklyPlanEntry,
+  upsertWeeklyPlanFabric, deleteWeeklyPlanFabric,
   uploadWeeklyPlanImage,
   canEditWeeklyPlanDates,
   getMondayOf, addDays, toISODate,
@@ -28,37 +28,47 @@ const DEMOGRAPHIC_OPTIONS = [
 ]
 const ADD_NEW = '__add_new__'
 
-const emptyFabric = () => ({
-  key: cryptoRandom(),
-  name: '',
-  photos: [],       // [{ url?: string, file?: File }]
-  ref_links: [''],  // start with one empty input for UX
-})
-
-const emptyEntry = () => ({
-  id: null,
-  silhouette: '',
-  gender: '',
-  category: '',
-  demographic_type: '',
-  fabrics: [emptyFabric()],
-})
-
-function cryptoRandom() {
+function localKey() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
   return Math.random().toString(36).slice(2)
 }
 
-// Hydrate raw DB fabrics ([{ name, photos:[url], ref_links:[url] }])
-// into UI-shape with { key, name, photos:[{url}], ref_links:[string] }.
-function hydrateFabrics(raw) {
-  if (!Array.isArray(raw) || raw.length === 0) return [emptyFabric()]
-  return raw.map(f => ({
-    key: f.id || cryptoRandom(),
-    name: f.name || '',
-    photos: Array.isArray(f.photos) ? f.photos.map(u => ({ url: u })) : [],
-    ref_links: Array.isArray(f.ref_links) && f.ref_links.length ? f.ref_links : [''],
-  }))
+const emptyItem = () => ({
+  key: localKey(),
+  silhouette: '',
+  gender: '',
+  category: '',
+  demographic_type: '',
+})
+
+const emptyFabric = () => ({
+  key: localKey(),
+  id: null,             // DB id; null = not yet saved
+  name: '',
+  photos: [],           // UI shape: [{ url?, file? }]
+  ref_links: [''],      // start with one empty input
+  items: [emptyItem()],
+})
+
+// Hydrate a fabric row from the DB into the UI shape.
+function hydrateFabric(row) {
+  const items = Array.isArray(row.items) && row.items.length > 0
+    ? row.items.map(it => ({
+        key:              it.id || localKey(),
+        silhouette:       it.silhouette       || '',
+        gender:           it.gender           || '',
+        category:         it.category         || '',
+        demographic_type: it.demographic_type || '',
+      }))
+    : [emptyItem()]
+  return {
+    key:       row.id,
+    id:        row.id,
+    name:      row.name || '',
+    photos:    Array.isArray(row.photos)    ? row.photos.map(u => ({ url: u })) : [],
+    ref_links: Array.isArray(row.ref_links) && row.ref_links.length ? row.ref_links : [''],
+    items,
+  }
 }
 
 function WeeklyPlanFormInner() {
@@ -68,44 +78,33 @@ function WeeklyPlanFormInner() {
   const search = useSearchParams()
   const editId = search.get('id')
 
-  // Initialize dates: this Monday → next Monday.
+  // Default dates: this week's Monday → next Monday.
   const initialMon = getMondayOf(new Date())
   const [plan, setPlan] = useState({
     week_start_date: toISODate(initialMon),
     week_end_date:   toISODate(addDays(initialMon, 7)),
     status: 'draft',
     rejection_reason: '',
-    creator: null,
-    approver: null,
   })
-  const [entries, setEntries]     = useState([emptyEntry()])
-  const [removedIds, setRemoved]  = useState([])   // entry IDs to delete on save
-  const [loading, setLoading]     = useState(false)
-  const [saving, setSaving]       = useState(false)
+  const [fabrics, setFabrics]    = useState([emptyFabric()])
+  const [removedIds, setRemoved] = useState([])     // fabric DB IDs to delete on save
+  const [loading, setLoading]    = useState(false)
+  const [saving, setSaving]      = useState(false)
 
   useEffect(() => {
     if (!editId) return
     ;(async () => {
       setLoading(true)
       try {
-        const p = await getWeeklyPlan(editId)
-        const es = await getWeeklyPlanEntries(editId)
+        const p   = await getWeeklyPlan(editId)
+        const fs  = await getWeeklyPlanFabrics(editId)
         setPlan({
-          week_start_date: p.week_start_date,
-          week_end_date:   p.week_end_date,
-          status:          p.status,
+          week_start_date:  p.week_start_date,
+          week_end_date:    p.week_end_date,
+          status:           p.status,
           rejection_reason: p.rejection_reason || '',
-          creator:         p.creator,
-          approver:        p.approver,
         })
-        setEntries(es.length > 0 ? es.map(e => ({
-          id: e.id,
-          silhouette:       e.silhouette       || '',
-          gender:           e.gender           || '',
-          category:         e.category         || '',
-          demographic_type: e.demographic_type || '',
-          fabrics:          hydrateFabrics(e.fabrics),
-        })) : [emptyEntry()])
+        setFabrics(fs.length > 0 ? fs.map(hydrateFabric) : [emptyFabric()])
       } catch (err) { toast(err.message, 'error') }
       finally       { setLoading(false) }
     })()
@@ -120,43 +119,43 @@ function WeeklyPlanFormInner() {
   // ── plan setters ────────────────────────────────────────────
   const setPlanField = (k, v) => setPlan(p => ({ ...p, [k]: v }))
 
-  // ── entry setters ───────────────────────────────────────────
-  const setEntryField = (i, k, v) => setEntries(arr => arr.map((e, idx) => idx === i ? { ...e, [k]: v } : e))
+  // ── fabric setters ──────────────────────────────────────────
+  const setFabricField = (fi, k, v) => setFabrics(arr => arr.map((f, i) => i === fi ? { ...f, [k]: v } : f))
 
-  const addEntry    = () => setEntries(arr => [...arr, emptyEntry()])
-  const removeEntry = i => setEntries(arr => {
-    const target = arr[i]
+  const addFabric    = () => setFabrics(arr => [...arr, emptyFabric()])
+  const removeFabric = fi => setFabrics(arr => {
+    const target = arr[fi]
     if (target.id) setRemoved(r => [...r, target.id])
-    return arr.filter((_, idx) => idx !== i)
+    return arr.filter((_, i) => i !== fi)
   })
 
-  // ── fabric setters ──────────────────────────────────────────
-  const updateFabrics = (entryIdx, fn) => setEntries(arr => arr.map((e, idx) =>
-    idx === entryIdx ? { ...e, fabrics: fn(e.fabrics) } : e
-  ))
-  const addFabric    = entryIdx        => updateFabrics(entryIdx, fs => [...fs, emptyFabric()])
-  const removeFabric = (entryIdx, fIdx) => updateFabrics(entryIdx, fs => fs.filter((_, i) => i !== fIdx))
-  const setFabricField = (entryIdx, fIdx, k, v) => updateFabrics(entryIdx, fs => fs.map((f, i) =>
-    i === fIdx ? { ...f, [k]: v } : f
-  ))
+  // ── photos ──────────────────────────────────────────────────
+  const addPhotos = (fi, files) => setFabricField(fi, 'photos', [
+    ...fabrics[fi].photos,
+    ...files.map(file => ({ file })),
+  ])
+  const removePhoto = (fi, pIdx) => setFabricField(fi, 'photos',
+    fabrics[fi].photos.filter((_, i) => i !== pIdx)
+  )
 
-  // ── photo helpers ───────────────────────────────────────────
-  const addPhotos = (entryIdx, fIdx, files) => updateFabrics(entryIdx, fs => fs.map((f, i) =>
-    i === fIdx ? { ...f, photos: [...f.photos, ...files.map(file => ({ file }))] } : f
-  ))
-  const removePhoto = (entryIdx, fIdx, photoIdx) => updateFabrics(entryIdx, fs => fs.map((f, i) =>
-    i === fIdx ? { ...f, photos: f.photos.filter((_, p) => p !== photoIdx) } : f
-  ))
+  // ── ref links ───────────────────────────────────────────────
+  const setRefLink    = (fi, lIdx, v) => setFabricField(fi, 'ref_links',
+    fabrics[fi].ref_links.map((l, i) => i === lIdx ? v : l)
+  )
+  const addRefLink    = fi            => setFabricField(fi, 'ref_links', [...fabrics[fi].ref_links, ''])
+  const removeRefLink = (fi, lIdx)    => setFabricField(fi, 'ref_links',
+    fabrics[fi].ref_links.filter((_, i) => i !== lIdx)
+  )
 
-  // ── ref link helpers ────────────────────────────────────────
-  const setRefLink = (entryIdx, fIdx, linkIdx, v) => updateFabrics(entryIdx, fs => fs.map((f, i) =>
-    i === fIdx ? { ...f, ref_links: f.ref_links.map((l, j) => j === linkIdx ? v : l) } : f
-  ))
-  const addRefLink    = (entryIdx, fIdx)             => updateFabrics(entryIdx, fs => fs.map((f, i) =>
-    i === fIdx ? { ...f, ref_links: [...f.ref_links, ''] } : f
-  ))
-  const removeRefLink = (entryIdx, fIdx, linkIdx)    => updateFabrics(entryIdx, fs => fs.map((f, i) =>
-    i === fIdx ? { ...f, ref_links: f.ref_links.filter((_, j) => j !== linkIdx) } : f
+  // ── items ───────────────────────────────────────────────────
+  const updateItems = (fi, fn) => setFabricField(fi, 'items', fn(fabrics[fi].items))
+  const addItem     = fi               => updateItems(fi, items => [...items, emptyItem()])
+  const removeItem  = (fi, iIdx)       => updateItems(fi, items => items.filter((_, i) => i !== iIdx))
+  const setItemField = (fi, iIdx, k, v) => updateItems(fi, items => items.map((it, i) =>
+    i === iIdx ? (
+      // changing gender resets category since options depend on gender
+      k === 'gender' ? { ...it, gender: v, category: '' } : { ...it, [k]: v }
+    ) : it
   ))
 
   // ── persistence ─────────────────────────────────────────────
@@ -167,9 +166,10 @@ function WeeklyPlanFormInner() {
     if (new Date(plan.week_end_date) <= new Date(plan.week_start_date)) {
       toast('Week end must be after week start', 'error'); return
     }
+
     setSaving(true)
     try {
-      // 1. Upsert the plan.
+      // 1. Upsert the plan first so we have a planId.
       const planPayload = {
         week_start_date: plan.week_start_date,
         week_end_date:   plan.week_end_date,
@@ -183,42 +183,43 @@ function WeeklyPlanFormInner() {
         planId = created.id
       }
 
-      // 2. Delete removed entries.
-      await Promise.all(removedIds.map(id => deleteWeeklyPlanEntry(id)))
+      // 2. Delete removed fabrics.
+      await Promise.all(removedIds.map(id => deleteWeeklyPlanFabric(id)))
       setRemoved([])
 
-      // 3. Upload photos + upsert entries (sequential per entry, parallel within).
-      for (let i = 0; i < entries.length; i++) {
-        const e = entries[i]
-        if (!e.silhouette && !e.gender && !e.category && !e.demographic_type
-            && e.fabrics.every(f => !f.name && f.photos.length === 0 && f.ref_links.every(l => !l.trim()))) {
-          // Skip wholly-blank entries silently.
-          continue
-        }
-
-        const fabricsClean = await Promise.all(e.fabrics.map(async (f) => {
-          const photoUrls = await Promise.all(f.photos.map(async (p) => {
-            if (p.url) return p.url
-            if (p.file) return await uploadWeeklyPlanImage(p.file, planId, e.id || `entry-${i}`, f.key)
-            return null
+      // 3. For each fabric: upload pending photos → upsert row.
+      for (let i = 0; i < fabrics.length; i++) {
+        const f = fabrics[i]
+        const itemsClean = f.items
+          .map(it => ({
+            id:               it.key,
+            silhouette:       it.silhouette       || '',
+            gender:           it.gender           || '',
+            category:         it.category         || '',
+            demographic_type: it.demographic_type || '',
           }))
-          return {
-            id:        f.key,
-            name:      f.name || '',
-            photos:    photoUrls.filter(Boolean),
-            ref_links: f.ref_links.map(l => l.trim()).filter(Boolean),
-          }
+          // Drop wholly-blank item rows so they don't pollute storage.
+          .filter(it => it.silhouette || it.gender || it.category || it.demographic_type)
+
+        const photoUrls = await Promise.all(f.photos.map(async p => {
+          if (p.url) return p.url
+          if (p.file) return await uploadWeeklyPlanImage(p.file, planId, f.key)
+          return null
         }))
 
-        await upsertWeeklyPlanEntry({
-          id:               e.id || undefined,
-          weekly_plan_id:   planId,
-          silhouette:       e.silhouette,
-          gender:           e.gender,
-          category:         e.category,
-          demographic_type: e.demographic_type,
-          fabrics:          fabricsClean,
-          sort_order:       i,
+        const refLinks = f.ref_links.map(l => (l || '').trim()).filter(Boolean)
+
+        // Skip wholly-blank fabrics silently.
+        if (!f.name && photoUrls.length === 0 && refLinks.length === 0 && itemsClean.length === 0) continue
+
+        await upsertWeeklyPlanFabric({
+          id:             f.id || undefined,
+          weekly_plan_id: planId,
+          name:           f.name || '',
+          photos:         photoUrls.filter(Boolean),
+          ref_links:      refLinks,
+          items:          itemsClean,
+          sort_order:     i,
         })
       }
 
@@ -244,7 +245,7 @@ function WeeklyPlanFormInner() {
       <div style={{ maxWidth: 1180, margin: '0 auto' }}>
         <a href="/weekly-plan" className="btn btn-ghost btn-sm" style={{ marginBottom: 20, display: 'inline-flex' }}>← Back to Weekly Plans</a>
 
-        {/* ── Plan header ────────────────────────────────────── */}
+        {/* ── Plan header ───────────────────────────────────── */}
         <div className="card" style={{ marginBottom: 20 }}>
           <div className="card-body">
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
@@ -268,7 +269,6 @@ function WeeklyPlanFormInner() {
                   onChange={e => {
                     const v = e.target.value
                     setPlanField('week_start_date', v)
-                    // auto-adjust end to +7 if user shifts start
                     if (v) setPlanField('week_end_date', toISODate(addDays(new Date(v + 'T00:00:00'), 7)))
                   }}
                 />
@@ -295,33 +295,34 @@ function WeeklyPlanFormInner() {
           </div>
         </div>
 
-        {/* ── Entries ────────────────────────────────────────── */}
-        {entries.map((e, i) => (
-          <EntryCard
-            key={e.id || `new-${i}`}
-            index={i}
-            entry={e}
+        {/* ── Fabrics (major unit) ──────────────────────────── */}
+        {fabrics.map((f, fi) => (
+          <FabricCard
+            key={f.key}
+            index={fi}
+            fabric={f}
             disabled={isReadOnly}
-            onChangeField={(k, v) => setEntryField(i, k, v)}
-            onRemove={() => removeEntry(i)}
-            onAddFabric={() => addFabric(i)}
-            onRemoveFabric={fIdx => removeFabric(i, fIdx)}
-            onSetFabricField={(fIdx, k, v) => setFabricField(i, fIdx, k, v)}
-            onAddPhotos={(fIdx, files) => addPhotos(i, fIdx, files)}
-            onRemovePhoto={(fIdx, pIdx) => removePhoto(i, fIdx, pIdx)}
-            onSetRefLink={(fIdx, lIdx, v) => setRefLink(i, fIdx, lIdx, v)}
-            onAddRefLink={fIdx => addRefLink(i, fIdx)}
-            onRemoveRefLink={(fIdx, lIdx) => removeRefLink(i, fIdx, lIdx)}
+            canRemove={fabrics.length > 1}
+            onSetField={(k, v) => setFabricField(fi, k, v)}
+            onRemove={() => removeFabric(fi)}
+            onAddPhotos={files => addPhotos(fi, files)}
+            onRemovePhoto={pIdx => removePhoto(fi, pIdx)}
+            onSetRefLink={(lIdx, v) => setRefLink(fi, lIdx, v)}
+            onAddRefLink={() => addRefLink(fi)}
+            onRemoveRefLink={lIdx => removeRefLink(fi, lIdx)}
+            onAddItem={() => addItem(fi)}
+            onRemoveItem={iIdx => removeItem(fi, iIdx)}
+            onSetItemField={(iIdx, k, v) => setItemField(fi, iIdx, k, v)}
           />
         ))}
 
         {!isReadOnly && (
-          <button type="button" className="btn btn-ghost" onClick={addEntry} style={{ marginTop: 4 }}>
-            + Add Entry
+          <button type="button" className="btn btn-primary" onClick={addFabric} style={{ marginTop: 4 }}>
+            + Add Fabric
           </button>
         )}
 
-        {/* ── Footer actions ─────────────────────────────────── */}
+        {/* ── Footer actions ────────────────────────────────── */}
         {!isReadOnly && (
           <div style={{ marginTop: 28, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <a href="/weekly-plan" className="btn btn-ghost">Cancel</a>
@@ -346,105 +347,95 @@ function WeeklyPlanFormInner() {
   )
 }
 
-// ─── Entry card ────────────────────────────────────────────────
-function EntryCard({
-  index, entry, disabled,
-  onChangeField, onRemove,
-  onAddFabric, onRemoveFabric, onSetFabricField,
+// ─── Fabric card (the major unit) ─────────────────────────────
+function FabricCard({
+  index, fabric, disabled, canRemove,
+  onSetField, onRemove,
   onAddPhotos, onRemovePhoto,
   onSetRefLink, onAddRefLink, onRemoveRefLink,
+  onAddItem, onRemoveItem, onSetItemField,
 }) {
-  const catOptions = entry.gender ? (CATEGORY_OPTIONS[entry.gender] || []) : []
-  const [demoCustom, setDemoCustom] = useState(
-    entry.demographic_type && !DEMOGRAPHIC_OPTIONS.includes(entry.demographic_type)
-  )
-
   return (
     <div className="card" style={{ marginBottom: 16 }}>
       <div className="card-header">
-        <div className="card-title">Entry {index + 1}</div>
-        {!disabled && (
-          <button type="button" className="btn btn-ghost btn-xs" onClick={onRemove} title="Remove entry">✕ Remove entry</button>
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 24, height: 24, borderRadius: 6,
+            background: 'var(--primary-10)', color: 'var(--primary)',
+            fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+          }}>{index + 1}</span>
+          Fabric
+        </div>
+        {!disabled && canRemove && (
+          <button type="button" className="btn btn-ghost btn-xs" onClick={onRemove} title="Remove fabric">✕ Remove fabric</button>
         )}
       </div>
+
       <div className="card-body">
         <div className="form-grid">
 
-          <div className="form-group">
-            <label className="form-label">Silhouette</label>
-            <input className="form-input" value={entry.silhouette}
+          <div className="form-group form-full">
+            <label className="form-label">Fabric Name</label>
+            <input className="form-input" value={fabric.name}
               disabled={disabled}
-              onChange={e => onChangeField('silhouette', e.target.value)}
-              placeholder="e.g. Relaxed straight, cropped at ankle" />
+              onChange={e => onSetField('name', e.target.value)}
+              placeholder="e.g. Cotton Flax 80/20" />
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Gender</label>
-            <select className="form-select" value={entry.gender}
+          <div className="form-group form-full">
+            <label className="form-label">Reference Photos</label>
+            <PhotoGrid
+              photos={fabric.photos}
               disabled={disabled}
-              onChange={e => { onChangeField('gender', e.target.value); onChangeField('category', '') }}>
-              <option value="">Select…</option>
-              {['Women','Men','Unisex'].map(o => <option key={o}>{o}</option>)}
-            </select>
+              onAdd={onAddPhotos}
+              onRemove={onRemovePhoto}
+            />
+            <div className="form-hint">Add as many as you like. Each is auto-resized to ~1600px and re-encoded as JPEG.</div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Category</label>
-            <select className="form-select" value={entry.category}
-              disabled={disabled || !entry.gender}
-              onChange={e => onChangeField('category', e.target.value)}>
-              <option value="">{entry.gender ? 'Select…' : 'Select gender first'}</option>
-              {catOptions.map(o => <option key={o}>{o}</option>)}
-            </select>
+          <div className="form-group form-full">
+            <label className="form-label">Reference Links</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {fabric.ref_links.map((link, lIdx) => (
+                <div key={lIdx} style={{ display: 'flex', gap: 6 }}>
+                  <input className="form-input" value={link}
+                    disabled={disabled}
+                    onChange={e => onSetRefLink(lIdx, e.target.value)}
+                    placeholder="Pinterest / competitor URL…"
+                    style={{ flex: 1 }} />
+                  {!disabled && fabric.ref_links.length > 1 && (
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => onRemoveRefLink(lIdx)}>✕</button>
+                  )}
+                </div>
+              ))}
+              {!disabled && (
+                <button type="button" className="btn btn-ghost btn-xs" style={{ alignSelf: 'flex-start' }} onClick={onAddRefLink}>
+                  + Add Link
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Demographic Type</label>
-            <select
-              className="form-select"
-              value={demoCustom ? ADD_NEW : entry.demographic_type}
-              disabled={disabled}
-              onChange={e => {
-                const v = e.target.value
-                if (v === ADD_NEW) { setDemoCustom(true); onChangeField('demographic_type', '') }
-                else               { setDemoCustom(false); onChangeField('demographic_type', v) }
-              }}>
-              <option value="">Select…</option>
-              {DEMOGRAPHIC_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-              <option value={ADD_NEW}>+ Add new…</option>
-            </select>
-            {demoCustom && (
-              <input className="form-input" style={{ marginTop: 6 }}
-                value={entry.demographic_type}
+          {/* ── Items under this fabric ─────────────────────── */}
+          <div className="form-section-head">Items in this fabric</div>
+
+          <div className="form-full" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {fabric.items.map((it, iIdx) => (
+              <ItemRow
+                key={it.key}
+                index={iIdx}
+                item={it}
                 disabled={disabled}
-                onChange={e => onChangeField('demographic_type', e.target.value)}
-                placeholder="Type a new demographic…" autoFocus />
-            )}
-          </div>
-
-          {/* ── Fabrics ──────────────────────────────────── */}
-          <div className="form-section-head">Fabrics</div>
-
-          <div className="form-full" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {entry.fabrics.map((f, fIdx) => (
-              <FabricBlock
-                key={f.key}
-                index={fIdx}
-                fabric={f}
-                disabled={disabled}
-                canRemove={entry.fabrics.length > 1}
-                onSetField={(k, v) => onSetFabricField(fIdx, k, v)}
-                onRemove={() => onRemoveFabric(fIdx)}
-                onAddPhotos={files => onAddPhotos(fIdx, files)}
-                onRemovePhoto={pIdx => onRemovePhoto(fIdx, pIdx)}
-                onSetRefLink={(lIdx, v) => onSetRefLink(fIdx, lIdx, v)}
-                onAddRefLink={() => onAddRefLink(fIdx)}
-                onRemoveRefLink={lIdx => onRemoveRefLink(fIdx, lIdx)}
+                canRemove={fabric.items.length > 1}
+                onSetField={(k, v) => onSetItemField(iIdx, k, v)}
+                onRemove={() => onRemoveItem(iIdx)}
               />
             ))}
+
             {!disabled && (
-              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onAddFabric}>
-                + Add Fabric
+              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onAddItem}>
+                + Add Item
               </button>
             )}
           </div>
@@ -455,69 +446,82 @@ function EntryCard({
   )
 }
 
-// ─── Fabric block ──────────────────────────────────────────────
-function FabricBlock({
-  index, fabric, disabled, canRemove,
-  onSetField, onRemove,
-  onAddPhotos, onRemovePhoto,
-  onSetRefLink, onAddRefLink, onRemoveRefLink,
-}) {
+// ─── Item row (a single style cut from this fabric) ────────────
+function ItemRow({ index, item, disabled, canRemove, onSetField, onRemove }) {
+  const catOptions = item.gender ? (CATEGORY_OPTIONS[item.gender] || []) : []
+  const [demoCustom, setDemoCustom] = useState(
+    !!item.demographic_type && !DEMOGRAPHIC_OPTIONS.includes(item.demographic_type)
+  )
+
   return (
     <div style={{
       border: '1px solid var(--border-dim)', borderRadius: 10, padding: 14,
       background: 'var(--raised)',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t3)' }}>
-          Fabric {index + 1}
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 700,
+          letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t3)',
+        }}>Item {index + 1}</span>
         {!disabled && canRemove && (
           <button type="button" className="btn btn-ghost btn-xs" style={{ marginLeft: 'auto' }} onClick={onRemove}>✕</button>
         )}
       </div>
 
-      <div className="form-group" style={{ marginBottom: 12 }}>
-        <label className="form-label">Fabric Name</label>
-        <input className="form-input" value={fabric.name}
-          disabled={disabled}
-          onChange={e => onSetField('name', e.target.value)}
-          placeholder="e.g. Cotton Flax 80/20" />
-      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
 
-      {/* ── Photos ───────────────────────────────────────── */}
-      <div className="form-group" style={{ marginBottom: 12 }}>
-        <label className="form-label">Reference Photos</label>
-        <PhotoGrid
-          photos={fabric.photos}
-          disabled={disabled}
-          onAdd={onAddPhotos}
-          onRemove={onRemovePhoto}
-        />
-        <div className="form-hint">Add as many as you like. Each is auto-resized to ~1600px and re-encoded as JPEG.</div>
-      </div>
+        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+          <label className="form-label">Silhouette</label>
+          <input className="form-input" value={item.silhouette}
+            disabled={disabled}
+            onChange={e => onSetField('silhouette', e.target.value)}
+            placeholder="e.g. Relaxed straight, cropped at ankle" />
+        </div>
 
-      {/* ── Ref Links ────────────────────────────────────── */}
-      <div className="form-group">
-        <label className="form-label">Reference Links</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {fabric.ref_links.map((link, lIdx) => (
-            <div key={lIdx} style={{ display: 'flex', gap: 6 }}>
-              <input className="form-input" value={link}
-                disabled={disabled}
-                onChange={e => onSetRefLink(lIdx, e.target.value)}
-                placeholder="Pinterest / competitor URL…"
-                style={{ flex: 1 }} />
-              {!disabled && fabric.ref_links.length > 1 && (
-                <button type="button" className="btn btn-ghost btn-xs" onClick={() => onRemoveRefLink(lIdx)}>✕</button>
-              )}
-            </div>
-          ))}
-          {!disabled && (
-            <button type="button" className="btn btn-ghost btn-xs" style={{ alignSelf: 'flex-start' }} onClick={onAddRefLink}>
-              + Add Link
-            </button>
+        <div className="form-group">
+          <label className="form-label">Gender</label>
+          <select className="form-select" value={item.gender}
+            disabled={disabled}
+            onChange={e => onSetField('gender', e.target.value)}>
+            <option value="">Select…</option>
+            {['Women','Men','Unisex'].map(o => <option key={o}>{o}</option>)}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Category</label>
+          <select className="form-select" value={item.category}
+            disabled={disabled || !item.gender}
+            onChange={e => onSetField('category', e.target.value)}>
+            <option value="">{item.gender ? 'Select…' : 'Select gender first'}</option>
+            {catOptions.map(o => <option key={o}>{o}</option>)}
+          </select>
+        </div>
+
+        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+          <label className="form-label">Demographic Type</label>
+          <select
+            className="form-select"
+            value={demoCustom ? ADD_NEW : item.demographic_type}
+            disabled={disabled}
+            onChange={e => {
+              const v = e.target.value
+              if (v === ADD_NEW) { setDemoCustom(true); onSetField('demographic_type', '') }
+              else               { setDemoCustom(false); onSetField('demographic_type', v) }
+            }}>
+            <option value="">Select…</option>
+            {DEMOGRAPHIC_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            <option value={ADD_NEW}>+ Add new…</option>
+          </select>
+          {demoCustom && (
+            <input className="form-input" style={{ marginTop: 6 }}
+              value={item.demographic_type}
+              disabled={disabled}
+              onChange={e => onSetField('demographic_type', e.target.value)}
+              placeholder="Type a new demographic…" autoFocus />
           )}
         </div>
+
       </div>
     </div>
   )

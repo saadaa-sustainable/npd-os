@@ -1,7 +1,16 @@
 -- ═══════════════════════════════════════════════════════════════
 -- SAADAA NPD OS — Weekly Plan migration
 -- Run this AFTER SETUP.sql and SETUP-02-spec-sheet.sql.
+-- Hierarchy:  weekly_plan (Mon→Mon)  →  fabrics[]  →  items[] (silhouette/gender/category/demographic)
 -- ═══════════════════════════════════════════════════════════════
+
+
+-- ── BLOCK 0: Drop the old entries-first design (safe re-run) ───
+-- The earlier version of this migration had silhouette/gender/category
+-- on a `weekly_plan_entries` table with fabrics nested inside. The
+-- correct model is the opposite: fabric is the parent, styles are
+-- many items per fabric.
+drop table if exists public.weekly_plan_entries cascade;
 
 
 -- ── BLOCK 1: Mark Sadiqji's profile ────────────────────────────
@@ -35,68 +44,86 @@ create table if not exists public.weekly_plans (
 create index if not exists weekly_plans_week_start_idx
   on public.weekly_plans (week_start_date desc);
 
--- Many style entries inside a weekly plan.
--- `fabrics` is a JSONB list — each fabric is:
---   { id: string, name: string, photos: [url], ref_links: [url] }
-create table if not exists public.weekly_plan_entries (
-  id               uuid default gen_random_uuid() primary key,
-  weekly_plan_id   uuid references public.weekly_plans(id) on delete cascade,
-  silhouette       text,
-  gender           text check (gender in ('Women','Men','Unisex')),
-  category         text,
-  demographic_type text,
-  fabrics          jsonb not null default '[]'::jsonb,
-  style_code       text,                                 -- auto-gen logic TBD
-  sort_order       integer default 0,
-  created_at       timestamptz default now(),
-  updated_at       timestamptz default now()
+-- Fabric is the major unit. Each fabric belongs to a weekly plan,
+-- carries its own reference photos + reference links, and contains
+-- many "items" (silhouette/gender/category/demographic_type), since
+-- one fabric purchase typically gets cut into multiple styles.
+--
+-- `photos`    : jsonb array of URL strings.
+-- `ref_links` : jsonb array of URL strings.
+-- `items`     : jsonb array of
+--               { id, silhouette, gender, category, demographic_type, style_code? }
+create table if not exists public.weekly_plan_fabrics (
+  id              uuid default gen_random_uuid() primary key,
+  weekly_plan_id  uuid references public.weekly_plans(id) on delete cascade,
+  name            text,
+  photos          jsonb not null default '[]'::jsonb,
+  ref_links       jsonb not null default '[]'::jsonb,
+  items           jsonb not null default '[]'::jsonb,
+  sort_order      integer default 0,
+  created_at      timestamptz default now(),
+  updated_at      timestamptz default now()
 );
 
-create index if not exists wpe_plan_idx
-  on public.weekly_plan_entries (weekly_plan_id, sort_order);
+create index if not exists wpf_plan_idx
+  on public.weekly_plan_fabrics (weekly_plan_id, sort_order);
 
 
 -- ── BLOCK 3: TRIGGERS (updated_at) ──────────────────────────────
+
+-- Drop pre-existing triggers from earlier migration runs so the
+-- file re-runs cleanly.
+drop trigger if exists weekly_plans_updated_at on public.weekly_plans;
+drop trigger if exists wpf_updated_at          on public.weekly_plan_fabrics;
 
 create trigger weekly_plans_updated_at
   before update on public.weekly_plans
   for each row execute procedure update_updated_at();
 
-create trigger wpe_updated_at
-  before update on public.weekly_plan_entries
+create trigger wpf_updated_at
+  before update on public.weekly_plan_fabrics
   for each row execute procedure update_updated_at();
 
 
 -- ── BLOCK 4: ROW LEVEL SECURITY ─────────────────────────────────
 
-alter table public.weekly_plans         enable row level security;
-alter table public.weekly_plan_entries  enable row level security;
+alter table public.weekly_plans          enable row level security;
+alter table public.weekly_plan_fabrics   enable row level security;
+
+-- Drop pre-existing policies so the file re-runs cleanly.
+drop policy if exists "wp_select"   on public.weekly_plans;
+drop policy if exists "wp_insert"   on public.weekly_plans;
+drop policy if exists "wp_update"   on public.weekly_plans;
+drop policy if exists "wp_delete"   on public.weekly_plans;
+drop policy if exists "wpf_select"  on public.weekly_plan_fabrics;
+drop policy if exists "wpf_insert"  on public.weekly_plan_fabrics;
+drop policy if exists "wpf_update"  on public.weekly_plan_fabrics;
+drop policy if exists "wpf_delete"  on public.weekly_plan_fabrics;
 
 -- All authenticated users can read.
-create policy "wp_select"   on public.weekly_plans         for select using (auth.role() = 'authenticated');
-create policy "wpe_select"  on public.weekly_plan_entries  for select using (auth.role() = 'authenticated');
+create policy "wp_select"   on public.weekly_plans          for select using (auth.role() = 'authenticated');
+create policy "wpf_select"  on public.weekly_plan_fabrics   for select using (auth.role() = 'authenticated');
 
--- Founders and makers create plans + entries.
-create policy "wp_insert"   on public.weekly_plans         for insert with check (get_my_role() in ('founder','maker'));
-create policy "wpe_insert"  on public.weekly_plan_entries  for insert with check (get_my_role() in ('founder','maker'));
+-- Founders and makers create plans + fabrics.
+create policy "wp_insert"   on public.weekly_plans          for insert with check (get_my_role() in ('founder','maker'));
+create policy "wpf_insert"  on public.weekly_plan_fabrics   for insert with check (get_my_role() in ('founder','maker'));
 
 -- Update: founder always, maker on own plans, plus is_sadiqji can update (approvals + dates).
--- We can't enforce the "only Sadiqji+founder can move the *dates*" rule via row-policy alone
--- (RLS is row-level, not column-level). The UI gates date editing client-side; backend allows it.
+-- RLS is row-level, not column-level — the UI client-side gates date editing to founders+Sadiqji.
 create policy "wp_update" on public.weekly_plans for update using (
   get_my_role() = 'founder'
   or (get_my_role() = 'maker' and created_by = auth.uid())
   or exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_sadiqji)
 );
 
-create policy "wpe_update" on public.weekly_plan_entries for update using (
+create policy "wpf_update" on public.weekly_plan_fabrics for update using (
   get_my_role() in ('founder','maker','checker')
   or exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_sadiqji)
 );
 
--- Delete: founder only on plans; entries can be removed by founder or original maker.
-create policy "wp_delete" on public.weekly_plans for delete using (get_my_role() = 'founder');
-create policy "wpe_delete" on public.weekly_plan_entries for delete using (
+-- Delete.
+create policy "wp_delete"  on public.weekly_plans          for delete using (get_my_role() = 'founder');
+create policy "wpf_delete" on public.weekly_plan_fabrics   for delete using (
   get_my_role() = 'founder'
   or exists (
     select 1 from public.weekly_plans wp

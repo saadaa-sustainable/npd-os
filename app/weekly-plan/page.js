@@ -25,7 +25,7 @@ export default function WeeklyPlanPage() {
   const user  = useRequireAuth()
   const toast = useToast()
   const [plans, setPlans]       = useState([])
-  const [counts, setCounts]     = useState({})   // { planId: entryCount }
+  const [counts, setCounts]     = useState({})   // { planId: { fabrics, items } }
   const [loading, setLoading]   = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch]     = useState('')
@@ -35,14 +35,17 @@ export default function WeeklyPlanPage() {
     try {
       const data = await getWeeklyPlans()
       setPlans(data)
-      // entry counts (cheap head-only count per plan)
       const c = {}
       await Promise.all(data.map(async p => {
-        const { count } = await supabase
-          .from('weekly_plan_entries')
-          .select('id', { count: 'exact', head: true })
+        const { data: rows } = await supabase
+          .from('weekly_plan_fabrics')
+          .select('items')
           .eq('weekly_plan_id', p.id)
-        c[p.id] = count || 0
+        const fabricCount = rows?.length || 0
+        const itemCount = (rows || []).reduce(
+          (acc, r) => acc + (Array.isArray(r.items) ? r.items.length : 0), 0,
+        )
+        c[p.id] = { fabrics: fabricCount, items: itemCount }
       }))
       setCounts(c)
     } catch (e) { toast(e.message, 'error') }
@@ -69,13 +72,13 @@ export default function WeeklyPlanPage() {
 
   const handleDelete = async (e, id) => {
     e.stopPropagation()
-    if (!confirm('Delete this weekly plan and all its entries? This cannot be undone.')) return
+    if (!confirm('Delete this weekly plan and all its fabrics? This cannot be undone.')) return
     try { await deleteWeeklyPlan(id); toast('Plan deleted', 'info'); load() }
     catch (err) { toast(err.message, 'error') }
   }
 
   return (
-    <AppShell title="Weekly Plan" subtitle="Mon-to-Mon style planning">
+    <AppShell title="Weekly Plan" subtitle="Mon-to-Mon planning, organised by fabric">
       {canCreate && (
         <div style={{ position: 'fixed', top: 14, right: 28, zIndex: 30 }}>
           <a href="/weekly-plan/new" className="btn btn-primary btn-sm">
@@ -104,29 +107,33 @@ export default function WeeklyPlanPage() {
             <table>
               <thead>
                 <tr>
-                  {['Week Start (Mon)','Week End (Mon)','Entries','Status','Created By','Approved By',''].map(h => <th key={h}>{h}</th>)}
+                  {['Week Start (Mon)','Week End (Mon)','Fabrics','Items','Status','Created By','Approved By',''].map(h => <th key={h}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: 48, color: 'var(--t3)' }}>
+                  <tr><td colSpan={8} style={{ textAlign: 'center', padding: 48, color: 'var(--t3)' }}>
                     {plans.length === 0 ? 'No weekly plans yet. Click + New Weekly Plan to start.' : 'No plans match your filters.'}
                   </td></tr>
-                ) : filtered.map(p => (
-                  <tr key={p.id} onClick={() => window.location.assign(`/weekly-plan/new?id=${p.id}`)}>
-                    <td className="td-primary">{fmtDate(p.week_start_date)}</td>
-                    <td>{fmtDate(p.week_end_date)}</td>
-                    <td><span className="td-code">{counts[p.id] ?? '–'}</span></td>
-                    <td><span className={`badge ${STATUS_BADGE[p.status] || 'badge-grey'}`}>{p.status}</span></td>
-                    <td className="td-muted">{p.creator?.full_name?.split(' ')[0] || '—'}</td>
-                    <td className="td-muted">{p.approver?.full_name?.split(' ')[0] || '—'}</td>
-                    <td onClick={e => e.stopPropagation()}>
-                      {user.role === 'founder' && (
-                        <button className="btn btn-xs btn-danger" onClick={e => handleDelete(e, p.id)} title="Delete plan">✕</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                ) : filtered.map(p => {
+                  const c = counts[p.id] || { fabrics: 0, items: 0 }
+                  return (
+                    <tr key={p.id} onClick={() => window.location.assign(`/weekly-plan/new?id=${p.id}`)}>
+                      <td className="td-primary">{fmtDate(p.week_start_date)}</td>
+                      <td>{fmtDate(p.week_end_date)}</td>
+                      <td><span className="td-code">{c.fabrics}</span></td>
+                      <td><span className="td-code">{c.items}</span></td>
+                      <td><span className={`badge ${STATUS_BADGE[p.status] || 'badge-grey'}`}>{p.status}</span></td>
+                      <td className="td-muted">{p.creator?.full_name?.split(' ')[0] || '—'}</td>
+                      <td className="td-muted">{p.approver?.full_name?.split(' ')[0] || '—'}</td>
+                      <td onClick={e => e.stopPropagation()}>
+                        {user.role === 'founder' && (
+                          <button className="btn btn-xs btn-danger" onClick={e => handleDelete(e, p.id)} title="Delete plan">✕</button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
