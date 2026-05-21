@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import AppShell from '@/components/layout/AppShell'
 import { useRequireAuth } from '@/lib/auth-context'
 import {
   getStyle, createStyle, updateStyle, addAuditLog,
-  generateStyleCode, CATEGORY_OPTIONS,
+  CATEGORY_OPTIONS,
   getMeasurements, replaceMeasurements, uploadSpecImage,
+  getStyleCodeSettings, composeStyleCodeSegments, generateNextStyleCode,
 } from '@/lib/supabase'
 import { useToast } from '@/components/Toast'
 
@@ -65,6 +66,27 @@ function NewStyleInner() {
   const [backFile,  setBack]  = useState(null)
   const [refFiles,  setRefFiles] = useState([])   // pending mood-board files (not yet uploaded)
   const [saving, setSaving]   = useState(false)
+  const [codeRules, setCodeRules] = useState({ gender: [], fabric: [], silhouette: [] })
+
+  // Load admin-managed style code rules once.
+  useEffect(() => {
+    getStyleCodeSettings()
+      .then(setCodeRules)
+      .catch(() => {})
+  }, [])
+
+  // Build the auto-preview from current selections. The 4-letter
+  // semantic prefix is computed live; the 2-letter AA-ZZ suffix is
+  // assigned on save (shown here as 'AA' placeholder).
+  const codePreview = useMemo(() => {
+    const selections = {
+      gender:      form.gender,
+      fabric:      form.fabric_platform,
+      silhouette:  form.silhouette,
+    }
+    const { ok, prefix, missing } = composeStyleCodeSegments(selections, codeRules)
+    return { ok, text: ok ? `${prefix}AA` : `${prefix}??`, missing }
+  }, [form.gender, form.fabric_platform, form.silhouette, codeRules])
 
   useEffect(() => {
     if (!editId) return
@@ -100,9 +122,9 @@ function NewStyleInner() {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const onNameChange = e => {
-    const name = e.target.value
-    set('name', name)
-    if (!editId) set('style_code', generateStyleCode(name))
+    set('name', e.target.value)
+    // Style code is now derived from Gender / Category / Fabric / Silhouette /
+    // Demographic via Admin → Style Code Settings, not from the product name.
   }
 
   // ── size set helpers ────────────────────────────────────────
@@ -148,9 +170,9 @@ function NewStyleInner() {
 
   const handleSubmit = async e => {
     e.preventDefault()
-    const { name, gender, category, fabric_platform } = form
-    if (!name || !gender || !category || !fabric_platform) {
-      toast('Please fill all required fields', 'error'); return
+    const { name, gender, category, fabric_platform, silhouette } = form
+    if (!name || !gender || !category || !fabric_platform || !silhouette) {
+      toast('Please fill all required fields (incl. Silhouette)', 'error'); return
     }
     setSaving(true)
     try {
@@ -168,7 +190,21 @@ function NewStyleInner() {
         right_image_url: b.right_image_url || '',
       }))
 
-      const basePayload = { ...form, sizes: cleanSizes, detail_blocks: sanitizedBlocks }
+      // For new styles (or existing ones missing a code), produce a fresh
+      // unique style code from the 5 admin-managed segments + counter.
+      let nextCode = form.style_code
+      if (!nextCode) {
+        try {
+          nextCode = await generateNextStyleCode({
+            gender, fabric: fabric_platform, silhouette,
+          })
+        } catch (err) {
+          toast(err.message, 'error')
+          setSaving(false); return
+        }
+      }
+
+      const basePayload = { ...form, style_code: nextCode, sizes: cleanSizes, detail_blocks: sanitizedBlocks }
 
       let styleId = editId
       if (editId) {
@@ -293,15 +329,27 @@ function NewStyleInner() {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">SKU Code (auto)</label>
-                  <input className="form-input code-field" value={form.style_code} readOnly placeholder="Auto-generated…" />
+                  <label className="form-label">Style Code (auto)</label>
+                  <input
+                    className="form-input code-field"
+                    value={form.style_code || codePreview.text}
+                    readOnly
+                    placeholder="Will auto-generate"
+                  />
+                  <div className="form-hint" style={{ color: codePreview.ok || form.style_code ? 'var(--t3)' : 'var(--yellow)' }}>
+                    {form.style_code
+                      ? 'Locked — generated style code.'
+                      : codePreview.ok
+                        ? 'AA–ZZ suffix assigned on save (unique per product).'
+                        : `Missing: ${codePreview.missing.join(', ')}. Configure rules at Admin → Style Code Settings.`}
+                  </div>
                 </div>
 
                 <div className="form-group">
                   <label className="form-label">Gender <span className="req">*</span></label>
                   <select className="form-select" value={form.gender} onChange={e => { set('gender', e.target.value); set('category', '') }}>
                     <option value="">Select…</option>
-                    {['Women','Men','Unisex'].map(o => <option key={o}>{o}</option>)}
+                    {codeRulesOptions(codeRules.gender, form.gender, ['Women','Men','Unisex']).map(o => <option key={o}>{o}</option>)}
                   </select>
                 </div>
 
@@ -314,10 +362,10 @@ function NewStyleInner() {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Fabric Platform <span className="req">*</span></label>
+                  <label className="form-label">Fabric <span className="req">*</span></label>
                   <select className="form-select" value={form.fabric_platform} onChange={e => set('fabric_platform', e.target.value)}>
                     <option value="">Select…</option>
-                    {['Woven','Knit','Denim','Terry/Fleece'].map(o => <option key={o}>{o}</option>)}
+                    {codeRulesOptions(codeRules.fabric, form.fabric_platform, []).map(o => <option key={o}>{o}</option>)}
                   </select>
                 </div>
 
@@ -683,8 +731,12 @@ function NewStyleInner() {
                 <div className="form-section-head">Design Details</div>
 
                 <div className="form-group form-full">
-                  <label className="form-label">Silhouette / Fit Direction</label>
-                  <input className="form-input" value={form.silhouette} onChange={e => set('silhouette', e.target.value)} placeholder="e.g. Relaxed straight fit, mid-rise, cropped at ankle" />
+                  <label className="form-label">Silhouette <span className="req">*</span></label>
+                  <select className="form-select" value={form.silhouette} onChange={e => set('silhouette', e.target.value)}>
+                    <option value="">Select…</option>
+                    {codeRulesOptions(codeRules.silhouette, form.silhouette, []).map(o => <option key={o}>{o}</option>)}
+                  </select>
+                  <div className="form-hint">To add a new silhouette, go to Admin → Style Code Settings.</div>
                 </div>
 
                 <div className="form-group form-full">
@@ -726,6 +778,19 @@ function NewStyleInner() {
       </div>
     </AppShell>
   )
+}
+
+// Merge admin-managed rule values with a fallback list (defaults or the
+// currently-saved value on an existing style) so editing a legacy style
+// never blanks out a previously-valid choice.
+function codeRulesOptions(ruleRows, current, fallback) {
+  const ruleValues = (ruleRows || []).map(r => r.value)
+  const out = [...ruleValues]
+  for (const f of (fallback || [])) {
+    if (!out.some(v => v.toLowerCase() === String(f).toLowerCase())) out.push(f)
+  }
+  if (current && !out.some(v => v.toLowerCase() === current.toLowerCase())) out.push(current)
+  return out
 }
 
 const thStyle = {

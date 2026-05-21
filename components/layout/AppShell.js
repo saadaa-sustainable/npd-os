@@ -16,6 +16,7 @@ const NAV = [
   { id: 'inventory',   label: 'Inventory Planning',href: '/inventory',    roles: ['founder','maker','checker'],          icon: IconBox },
   { id: 'workflow',    label: 'Workflow Guide',    href: '/workflow',     roles: ['founder','maker','checker','viewer'], icon: IconZap },
   { id: 'admin',       label: 'User Management',   href: '/admin',        roles: ['founder'],                            icon: IconUsers },
+  { id: 'style-code',  label: 'Style Code Settings', href: '/admin/style-code-settings', roles: ['founder'],              icon: IconHash },
 ]
 
 const ROLE_LABELS = {
@@ -75,7 +76,7 @@ export default function AppShell({ children, title, subtitle }) {
         <div className="nav-section">
           <div className="nav-label">Navigation</div>
           {visibleNav.map(n => {
-            const active = pathname === n.href || (n.href !== '/styles' && pathname.startsWith(n.href))
+            const active = pathname === n.href || (n.href !== '/styles' && n.href !== '/admin' && pathname.startsWith(n.href))
             return (
               <Link key={n.id} href={n.href} className={`nav-item${active ? ' active' : ''}`}>
                 <n.icon />
@@ -138,3 +139,4 @@ function IconBox()    { return <svg className="nav-icon" fill="none" stroke="cur
 function IconZap()    { return <svg className="nav-icon" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> }
 function IconUsers()  { return <svg className="nav-icon" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg> }
 function IconCalendar(){ return <svg className="nav-icon" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg> }
+function IconHash()   { return <svg className="nav-icon" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18"/></svg> }
