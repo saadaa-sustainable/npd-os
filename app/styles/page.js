@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import AppShell from '@/components/layout/AppShell'
 import StyleDetailModal from '@/components/StyleDetailModal'
 import { useRequireAuth } from '@/lib/auth-context'
@@ -16,13 +16,15 @@ const STAGE_BADGE = {
 
 function StylesInner() {
   const user         = useRequireAuth()
-  const router       = useRouter()
   const searchParams = useSearchParams()
   const toast        = useToast()
 
   const [styles, setStyles]     = useState([])
   const [loading, setLoading]   = useState(true)
-  const [activeStage, setStage] = useState('All')
+  const [activeStage, setStage] = useState(() => {
+    const stageParam = searchParams.get('stage')
+    return stageParam ? decodeURIComponent(stageParam) : 'All'
+  })
   const [search, setSearch]     = useState('')
   const [gender, setGender]     = useState('')
   const [fabric, setFabric]     = useState('')
@@ -44,14 +46,13 @@ function StylesInner() {
   }, [])
 
   useEffect(() => {
-    const stageParam = searchParams.get('stage')
-    if (stageParam) setStage(decodeURIComponent(stageParam))
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadStyles()
-  }, [])
+  }, [loadStyles])
 
   if (!user) return null
 
-  const canCreate  = ['founder','maker'].includes(user.role)
+  const canCreate  = ['founder','maker','checker'].includes(user.role)
   const canApprove = ['founder','checker'].includes(user.role)
 
   const filtered = styles.filter(s => {

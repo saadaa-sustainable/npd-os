@@ -10,7 +10,7 @@ const ROLES = ['founder','checker','maker','viewer']
 
 const ROLE_INFO = {
   founder: { label: 'Admin',    desc: 'Full access - all pages, user management, delete styles', color: 'primary' },
-  checker: { label: 'Checker',  desc: 'Approve or reject styles, edit Weekly Plan dates',        color: 'yellow' },
+  checker: { label: 'Checker',  desc: 'Maker access plus approvals and Weekly Plan date edits',  color: 'yellow' },
   maker:   { label: 'Maker',    desc: 'Create, edit, submit, and hold/cancel own work',          color: 'blue' },
   viewer:  { label: 'Viewer',   desc: 'Read-only access — team members whose role is not yet defined', color: 'grey' },
 }

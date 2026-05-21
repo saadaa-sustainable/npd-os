@@ -31,7 +31,8 @@ create policy "spec_images_update" on storage.objects
 create policy "spec_images_delete" on storage.objects
   for delete using (bucket_id = 'spec-images');
 
--- 4. Clear the old person-specific Sadiq flag; checker role now carries that power.
+-- 4. Clear the old person-specific Sadiq flag; checker role now carries maker
+-- access plus approval/date-editing power in the app.
 alter table public.profiles
   add column if not exists is_sadiqji boolean not null default false;
 

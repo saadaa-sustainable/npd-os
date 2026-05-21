@@ -29,7 +29,7 @@ export default function StyleDetailModal({ styleId, user, onClose, onRefresh }) 
   }, [styleId])
 
   const canApprove = ['founder','checker'].includes(user?.role) && style?.approval_status === 'pending'
-  const canEdit    = ['founder','maker'].includes(user?.role)
+  const canEdit    = ['founder','maker','checker'].includes(user?.role)
   const canDelete  = user?.role === 'founder'
 
   const handleApprove = async () => {
@@ -81,7 +81,9 @@ export default function StyleDetailModal({ styleId, user, onClose, onRefresh }) 
               {/* Fields grid */}
               <div className="form-grid" style={{ marginBottom: 20 }}>
                 {[
+                  // eslint-disable-next-line react/jsx-key
                   ['Style Code', <span className="td-code">{style.style_code || '—'}</span>],
+                  // eslint-disable-next-line react/jsx-key
                   ['Stage', <span className={`badge ${STAGE_BADGE[style.stage] || 'badge-grey'}`}>{style.stage}</span>],
                   ['Gender', style.gender || '—'],
                   ['Category', style.category || '—'],
@@ -91,6 +93,7 @@ export default function StyleDetailModal({ styleId, user, onClose, onRefresh }) 
                   ['Collection', style.collection || '—'],
                   ['Maker', style.maker?.full_name || '—'],
                   ['Checker', style.checker?.full_name || 'Unassigned'],
+                  // eslint-disable-next-line react/jsx-key
                   ['Approval', <span className={`badge ${style.approval_status === 'approved' ? 'badge-green' : style.approval_status === 'rejected' ? 'badge-red' : 'badge-yellow'}`}>{style.approval_status}</span>],
                   ['Created', formatDate(style.created_at)],
                 ].map(([label, val]) => (

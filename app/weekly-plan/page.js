@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import AppShell from '@/components/layout/AppShell'
 import { useRequireAuth } from '@/lib/auth-context'
 import { useToast } from '@/components/Toast'
@@ -36,7 +36,7 @@ export default function WeeklyPlanPage() {
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const data = await getWeeklyPlans()
@@ -63,16 +63,16 @@ export default function WeeklyPlanPage() {
       setStats(s)
     } catch (e) { toast(e.message, 'error') }
     finally    { setLoading(false) }
-  }
+  }, [toast])
 
   useEffect(() => {
     if (!user) return
     ;(async () => { await load() })()
-  }, [user])
+  }, [user, load])
 
   if (!user) return null
 
-  const canCreate = ['founder','maker'].includes(user.role)
+  const canCreate = ['founder','maker','checker'].includes(user.role)
 
   const filtered = plans.filter(p => {
     if (search) {

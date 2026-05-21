@@ -11,7 +11,7 @@ const NAV = [
   { id: 'dashboard',   label: 'Overview',          href: '/dashboard',    roles: ['founder','viewer'],                   icon: IconGrid },
   { id: 'weekly-plan', label: 'Weekly Plan',       href: '/weekly-plan',  roles: ['founder','maker','checker','viewer'], icon: IconCalendar },
   { id: 'styles',      label: 'All Styles',        href: '/styles',       roles: ['founder','maker','checker','viewer'], icon: IconClip },
-  { id: 'styles/new',  label: 'New Style',         href: '/styles/new',   roles: ['founder','maker'],                    icon: IconPlus },
+  { id: 'styles/new',  label: 'New Style',         href: '/styles/new',   roles: ['founder','maker','checker'],          icon: IconPlus },
   { id: 'approvals',   label: 'Approvals',         href: '/approvals',    roles: ['founder','checker'],                  icon: IconShield, badge: true },
   { id: 'inventory',   label: 'Inventory Planning',href: '/inventory',    roles: ['founder','maker','checker'],          icon: IconBox },
   { id: 'workflow',    label: 'Workflow Guide',    href: '/workflow',     roles: ['founder','maker','checker','viewer'], icon: IconZap },

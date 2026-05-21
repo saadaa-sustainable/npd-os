@@ -118,7 +118,7 @@ function WeeklyPlanFormInner() {
   if (!user) return null
 
   const canEditDates = canEditWeeklyPlanDates(user)
-  const canEditItems = ['founder','maker'].includes(user.role)
+  const canEditItems = ['founder','maker','checker'].includes(user.role)
   const canReview    = ['founder','checker'].includes(user.role)
 
   // ── plan setters ────────────────────────────────────────────

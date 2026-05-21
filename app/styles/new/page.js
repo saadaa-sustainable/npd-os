@@ -49,7 +49,7 @@ const EMPTY_FORM = {
 }
 
 function NewStyleInner() {
-  const user   = useRequireAuth(['founder','maker'])
+  const user   = useRequireAuth(['founder','maker','checker'])
   const router = useRouter()
   const toast  = useToast()
   const searchParams = useSearchParams()

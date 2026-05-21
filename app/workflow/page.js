@@ -166,7 +166,7 @@ export default function WorkflowPage() {
             <tbody>
               {[
                 ['founder','Admin','All pages','Create, edit, approve, reject, delete, manage users','—'],
-                ['checker','Checker','Styles, Approvals, Inventory, Weekly Plan, Workflow','Approve/reject, edit Weekly Plan dates','Cannot create styles or plans'],
+                ['checker','Checker','Styles, New Style, Approvals, Inventory, Weekly Plan, Workflow','Maker access plus approve/reject and Weekly Plan date edits','Cannot edit users'],
                 ['maker','Maker','Styles, New Style, Inventory, Weekly Plan, Workflow','Create, edit, submit, and hold/cancel own work','Cannot approve or edit users'],
                 ['viewer','Viewer','Overview, Styles (read-only), Workflow','View pipeline, stats, workflow guide','Cannot create, edit, or approve anything'],
               ].map(([role, label, pages, can, cannot]) => (
