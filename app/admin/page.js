@@ -9,9 +9,9 @@ import { useToast } from '@/components/Toast'
 const ROLES = ['founder','checker','maker','viewer']
 
 const ROLE_INFO = {
-  founder: { label: 'Founder',  desc: 'Full access — all pages, user management, delete styles', color: 'primary' },
-  checker: { label: 'Checker',  desc: 'Approve or reject styles, view audit logs',               color: 'yellow' },
-  maker:   { label: 'Maker',    desc: 'Create and edit styles, submit for approval',              color: 'blue' },
+  founder: { label: 'Admin',    desc: 'Full access - all pages, user management, delete styles', color: 'primary' },
+  checker: { label: 'Checker',  desc: 'Approve or reject styles, edit Weekly Plan dates',        color: 'yellow' },
+  maker:   { label: 'Maker',    desc: 'Create, edit, submit, and hold/cancel own work',          color: 'blue' },
   viewer:  { label: 'Viewer',   desc: 'Read-only access — team members whose role is not yet defined', color: 'grey' },
 }
 
@@ -29,7 +29,7 @@ export default function AdminPage() {
   useEffect(() => { if (user) loadUsers() }, [user])
 
   const changeRole = async (userId, role) => {
-    try { await updateUserRole(userId, role); toast(`Role updated to ${role} ✓`, 'success') }
+    try { await updateUserRole(userId, role); toast(`Role updated to ${ROLE_INFO[role]?.label || role} ✓`, 'success') }
     catch(e) { toast(e.message, 'error') }
   }
 
@@ -40,7 +40,7 @@ export default function AdminPage() {
     try {
       // Create user via Supabase Auth Admin (requires service role — works via Edge Function)
       // For now: create via normal signup with a temp password and update profile
-      const { data, error } = await supabase.auth.admin?.createUser?.({
+      const { error } = await supabase.auth.admin?.createUser?.({
         email: invite.email,
         password: 'ChangeMe@123',
         user_metadata: { full_name: invite.full_name, role: invite.role },
@@ -62,8 +62,6 @@ export default function AdminPage() {
 
   if (!user) return null
 
-  const roleSorted = [...ROLES].map(r => ({ role: r, count: users.filter(u => u.role === r).length }))
-
   return (
     <AppShell title="User Management" subtitle="Manage team access and roles">
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
@@ -82,7 +80,7 @@ export default function AdminPage() {
         {Object.entries(ROLE_INFO).map(([role, info]) => (
           <div key={role} className="card">
             <div className="card-body" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              <span className={`badge role-${role}`} style={{ marginTop: 2 }}>{role}</span>
+              <span className={`badge role-${role}`} style={{ marginTop: 2 }}>{info.label}</span>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{info.label}</div>
                 <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>{info.desc}</div>
@@ -121,7 +119,7 @@ export default function AdminPage() {
                       </div>
                     </td>
                     <td className="td-muted">{u.email || '—'}</td>
-                    <td><span className={`badge role-${u.role}`}>{u.role}</span></td>
+                    <td><span className={`badge role-${u.role}`}>{ROLE_INFO[u.role]?.label || u.role}</span></td>
                     <td className="td-muted">{formatDate(u.created_at)}</td>
                     <td>
                       {u.id !== user.id ? (
@@ -131,7 +129,7 @@ export default function AdminPage() {
                           defaultValue={u.role}
                           onChange={e => changeRole(u.id, e.target.value)}
                         >
-                          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                          {ROLES.map(r => <option key={r} value={r}>{ROLE_INFO[r].label}</option>)}
                         </select>
                       ) : <span className="td-muted">—</span>}
                     </td>
@@ -168,7 +166,7 @@ export default function AdminPage() {
                   <div className="form-group">
                     <label className="form-label">Role <span className="req">*</span></label>
                     <select className="form-select" value={invite.role} onChange={e => setInvite(i => ({...i, role: e.target.value}))}>
-                      {ROLES.map(r => <option key={r} value={r}>{r} — {ROLE_INFO[r].desc.split(' —')[0]}</option>)}
+                      {ROLES.map(r => <option key={r} value={r}>{ROLE_INFO[r].label} - {ROLE_INFO[r].desc.split(' - ')[0]}</option>)}
                     </select>
                   </div>
                   <div style={{ background: 'var(--yellow-10)', border: '1px solid rgba(255,212,59,.2)', borderRadius: 'var(--r-sm)', padding: '10px 14px', fontSize: 12, color: 'var(--yellow)' }}>

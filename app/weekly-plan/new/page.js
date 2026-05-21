@@ -35,9 +35,7 @@ function localKey() {
 }
 
 // Each item is a single style cut from the parent fabric, with its
-// OWN reference photos + reference links and its OWN approval status,
-// since per the doc each style flows through Sadiqji's approval
-// independently and Hold/Cancel is a universal exit at any step.
+// own reference photos, reference links, and approval status.
 const emptyItem = () => ({
   key: localKey(),
   status: 'draft',
@@ -115,12 +113,13 @@ function WeeklyPlanFormInner() {
       } catch (err) { toast(err.message, 'error') }
       finally       { setLoading(false) }
     })()
-  }, [editId])
+  }, [editId, toast])
 
   if (!user) return null
 
   const canEditDates = canEditWeeklyPlanDates(user)
-  const canSubmit    = ['founder','maker'].includes(user.role)
+  const canEditItems = ['founder','maker'].includes(user.role)
+  const canReview    = ['founder','checker'].includes(user.role)
 
   // ── plan setters ────────────────────────────────────────────
   const setPlanField = (k, v) => setPlan(p => ({ ...p, [k]: v }))
@@ -260,6 +259,8 @@ function WeeklyPlanFormInner() {
         : targetStatus === 'submitted' ? 'Item submitted for approval ✓'
         : targetStatus === 'cancelled' ? 'Item cancelled / on hold'
         : targetStatus === 'draft'     ? 'Item saved as draft ✓'
+        : targetStatus === 'approved'  ? 'Item approved'
+        : targetStatus === 'rejected'  ? 'Item rejected'
         : 'Saved ✓'
       toast(successMsg, targetStatus === 'cancelled' ? 'info' : 'success')
     } catch (err) { toast(err.message, 'error') }
@@ -287,7 +288,7 @@ function WeeklyPlanFormInner() {
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700 }}>Week Window</div>
               {!canEditDates && (
                 <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--t3)' }}>
-                  🔒 Only founders & Sadiqji can edit week dates
+                  Only admins and checkers can edit week dates
                 </span>
               )}
             </div>
@@ -306,7 +307,7 @@ function WeeklyPlanFormInner() {
                     if (v) setPlanField('week_end_date', toISODate(addDays(new Date(v + 'T00:00:00'), 7)))
                   }}
                 />
-                <div className="form-hint">Defaulted to this Monday. Editable by founders + Sadiqji.</div>
+                <div className="form-hint">Defaulted to this Monday. Editable by admins and checkers.</div>
               </div>
               <div className="form-group">
                 <label className="form-label">Week End (Next Monday)</label>
@@ -330,7 +331,8 @@ function WeeklyPlanFormInner() {
             index={fi}
             fabric={f}
             canRemove={fabrics.length > 1}
-            canSubmit={canSubmit}
+            canEditItems={canEditItems}
+            canReview={canReview}
             saving={saving}
             onSetField={(k, v) => setFabricField(fi, k, v)}
             onRemove={() => removeFabric(fi)}
@@ -346,9 +348,11 @@ function WeeklyPlanFormInner() {
           />
         ))}
 
-        <button type="button" className="btn btn-primary" onClick={addFabric} style={{ marginTop: 4 }}>
-          + Add Fabric
-        </button>
+        {canEditItems && (
+          <button type="button" className="btn btn-primary" onClick={addFabric} style={{ marginTop: 4 }}>
+            + Add Fabric
+          </button>
+        )}
       </div>
     </AppShell>
   )
@@ -356,7 +360,7 @@ function WeeklyPlanFormInner() {
 
 // ─── Fabric card (parent container, just name + items) ─────────
 function FabricCard({
-  index, fabric, canRemove, canSubmit, saving,
+  index, fabric, canRemove, canEditItems, canReview, saving,
   onSetField, onRemove,
   onAddItem, onRemoveItem, onSetItemField,
   onAddItemPhotos, onRemoveItemPhoto,
@@ -375,7 +379,7 @@ function FabricCard({
           }}>{index + 1}</span>
           Fabric
         </div>
-        {canRemove && (
+        {canEditItems && canRemove && (
           <button type="button" className="btn btn-ghost btn-xs" onClick={onRemove} title="Remove fabric">✕ Remove fabric</button>
         )}
       </div>
@@ -400,7 +404,8 @@ function FabricCard({
                 index={ii}
                 item={it}
                 canRemove={fabric.items.length > 1}
-                canSubmit={canSubmit}
+                canEditItems={canEditItems}
+                canReview={canReview}
                 saving={saving}
                 onSetField={(k, v) => onSetItemField(ii, k, v)}
                 onRemove={() => onRemoveItem(ii)}
@@ -413,9 +418,11 @@ function FabricCard({
               />
             ))}
 
-            <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onAddItem}>
-              + Add Item
-            </button>
+            {canEditItems && (
+              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onAddItem}>
+                + Add Item
+              </button>
+            )}
           </div>
 
         </div>
@@ -426,7 +433,7 @@ function FabricCard({
 
 // ─── Item row (style cut from this fabric, with own refs) ──────
 function ItemRow({
-  index, item, canRemove, canSubmit, saving,
+  index, item, canRemove, canEditItems, canReview, saving,
   onSetField, onRemove,
   onAddPhotos, onRemovePhoto,
   onSetRefLink, onAddRefLink, onRemoveRefLink,
@@ -441,14 +448,16 @@ function ItemRow({
   const isApproved   = item.status === 'approved'
   const isSubmitted  = item.status === 'submitted'
 
-  // Approved items are locked (only Hold/Cancel is available).
+  // Approved/submitted/cancelled items are locked for makers.
   // Cancelled items show a Re-open action that returns them to draft.
   const showSaveDraft = !isApproved && !isCancelled
-  const showSubmit    = canSubmit && (item.status === 'draft' || item.status === 'rejected')
-  const showCancel    = !isCancelled
-  const showReopen    = isCancelled
+  const showSubmit    = canEditItems && (item.status === 'draft' || item.status === 'rejected')
+  const showCancel    = canEditItems && !isCancelled
+  const showReopen    = canEditItems && isCancelled
+  const showApprove   = canReview && isSubmitted
+  const showReject    = canReview && isSubmitted
 
-  const inputDisabled = isApproved || isSubmitted || isCancelled
+  const inputDisabled = !canEditItems || isApproved || isSubmitted || isCancelled
 
   return (
     <div style={{
@@ -462,7 +471,7 @@ function ItemRow({
           letterSpacing: 1, textTransform: 'uppercase', color: 'var(--t3)',
         }}>Item {index + 1}</span>
         <span className={`badge ${ITEM_STATUS_BADGE[item.status] || 'badge-grey'}`}>{item.status}</span>
-        {canRemove && item.status === 'draft' && (
+        {canEditItems && canRemove && item.status === 'draft' && (
           <button type="button" className="btn btn-ghost btn-xs" style={{ marginLeft: 'auto' }} onClick={onRemove} title="Remove item">✕</button>
         )}
       </div>
@@ -593,7 +602,7 @@ function ItemRow({
             title="Re-open this style — moves it back to draft"
           >Re-open</button>
         )}
-        {showSaveDraft && !isCancelled && (
+        {showSaveDraft && canEditItems && !isCancelled && (
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -608,6 +617,22 @@ function ItemRow({
             disabled={saving}
             onClick={() => onAction('submitted')}
           >{saving ? 'Submitting…' : 'Submit for Approval'}</button>
+        )}
+        {showReject && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={saving}
+            onClick={() => onAction('rejected')}
+          >Reject</button>
+        )}
+        {showApprove && (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={saving}
+            onClick={() => onAction('approved')}
+          >Approve</button>
         )}
       </div>
     </div>

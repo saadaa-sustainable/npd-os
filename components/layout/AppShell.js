@@ -18,6 +18,13 @@ const NAV = [
   { id: 'admin',       label: 'User Management',   href: '/admin',        roles: ['founder'],                            icon: IconUsers },
 ]
 
+const ROLE_LABELS = {
+  founder: 'Admin',
+  checker: 'Checker',
+  maker: 'Maker',
+  viewer: 'Viewer',
+}
+
 export default function AppShell({ children, title, subtitle }) {
   const { user, setUser } = useAuth()
   const pathname   = usePathname()
@@ -90,7 +97,7 @@ export default function AppShell({ children, title, subtitle }) {
               </div>
               <div className="user-role-sm">
                 <span className={`badge role-${user.role}`} style={{ fontSize: '9px', padding: '1px 6px' }}>
-                  {user.role}
+                  {ROLE_LABELS[user.role] || user.role}
                 </span>
               </div>
             </div>

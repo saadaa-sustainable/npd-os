@@ -165,13 +165,13 @@ export default function WorkflowPage() {
             <thead><tr><th>Role</th><th>Pages</th><th>Can Do</th><th>Cannot Do</th></tr></thead>
             <tbody>
               {[
-                ['founder','All pages','Create, edit, approve, reject, delete, manage users','—'],
-                ['checker','Styles, Approvals, Inventory, Workflow','Approve or reject styles, advance stages','Cannot create or edit styles'],
-                ['maker','Styles, New Style, Inventory, Workflow','Create styles, edit own styles, fill inventory','Cannot approve or edit others\' styles'],
-                ['viewer','Overview, Styles (read-only), Workflow','View pipeline, stats, workflow guide','Cannot create, edit, or approve anything'],
-              ].map(([role, pages, can, cannot]) => (
+                ['founder','Admin','All pages','Create, edit, approve, reject, delete, manage users','—'],
+                ['checker','Checker','Styles, Approvals, Inventory, Weekly Plan, Workflow','Approve/reject, edit Weekly Plan dates','Cannot create styles or plans'],
+                ['maker','Maker','Styles, New Style, Inventory, Weekly Plan, Workflow','Create, edit, submit, and hold/cancel own work','Cannot approve or edit users'],
+                ['viewer','Viewer','Overview, Styles (read-only), Workflow','View pipeline, stats, workflow guide','Cannot create, edit, or approve anything'],
+              ].map(([role, label, pages, can, cannot]) => (
                 <tr key={role} style={{ cursor: 'default' }}>
-                  <td><span className={`badge role-${role}`}>{role}</span></td>
+                  <td><span className={`badge role-${role}`}>{label}</span></td>
                   <td style={{ color: 'var(--t1)', fontSize: 12 }}>{pages}</td>
                   <td style={{ color: 'var(--green)', fontSize: 12 }}>{can}</td>
                   <td style={{ color: role === 'founder' ? 'var(--t3)' : 'var(--red)', fontSize: 12 }}>{cannot}</td>
