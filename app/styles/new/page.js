@@ -8,7 +8,7 @@ import {
   getStyle, createStyle, updateStyle, addAuditLog,
   CATEGORY_OPTIONS,
   getMeasurements, replaceMeasurements, uploadSpecImage,
-  getStyleCodeSettings, getFabrics, composeStyleCodeSegments, generateNextStyleCode,
+  getBuilderGroups, getFabrics, composeStyleCodeFromBuilder, generateNextStyleCode,
 } from '@/lib/supabase'
 import { useToast } from '@/components/Toast'
 import ImageField from './_components/ImageField'
@@ -70,36 +70,44 @@ function NewStyleInner() {
   const [backFile,  setBack]  = useState(null)
   const [refFiles,  setRefFiles] = useState([])   // pending mood-board files (not yet uploaded)
   const [saving, setSaving]   = useState(false)
-  const [codeRules, setCodeRules] = useState({ gender: [], fabric: [], silhouette: [] })
+  const [builderGroups, setBuilderGroups] = useState([])
+  const [fabricLibrary, setFabricLibrary] = useState([])
 
-  // Load admin-managed style code rules once. Surface failures so the
-  // maker can tell the admin if the migration hasn't been run.
+  // Load the admin-managed style code builder + fabric library.
+  // Fabric library is independent and only used for the composition hint.
   useEffect(() => {
-    Promise.all([getStyleCodeSettings(), getFabrics({ codedOnly: true })])
-      .then(([settings, fabrics]) => setCodeRules({ ...settings, fabric: fabrics }))
-      .catch(err => toast(`Could not load Style Code rules: ${err.message}`, 'error'))
+    Promise.all([getBuilderGroups(), getFabrics()])
+      .then(([groups, fabrics]) => { setBuilderGroups(groups); setFabricLibrary(fabrics) })
+      .catch(err => toast(`Could not load Style Code Builder: ${err.message}`, 'error'))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Selected fabric's composition — shown as a read-only hint below the
-  // fabric dropdown so the maker can see at-a-glance what they picked.
+  // Look up a builder group by name (case-insensitive).
+  const findGroup = (name) =>
+    builderGroups.find(g => g.groupName.toLowerCase() === name.toLowerCase())
+  const genderGroup     = findGroup('Gender')
+  const fabricGroup     = findGroup('Fabric')
+  const silhouetteGroup = findGroup('Silhouette')
+
+  // Optional composition hint: if the selected fabric name happens to
+  // match a row in the Fabric Library, show its composition underneath.
   const selectedFabric = useMemo(
-    () => (codeRules.fabric || []).find(f => f.name?.toLowerCase() === form.fabric_platform?.toLowerCase()),
-    [codeRules.fabric, form.fabric_platform],
+    () => fabricLibrary.find(f => f.name?.toLowerCase() === form.fabric_platform?.toLowerCase()),
+    [fabricLibrary, form.fabric_platform],
   )
 
-  // Build the auto-preview from current selections. The 4-letter
-  // semantic prefix is computed live; the 2-letter AA-ZZ suffix is
-  // assigned on save (shown here as 'AA' placeholder).
+  // Selections keyed by the builder's group_name (case must match builder).
+  const codeSelections = useMemo(() => ({
+    [genderGroup?.groupName     || 'Gender']:     form.gender,
+    [fabricGroup?.groupName     || 'Fabric']:     form.fabric_platform,
+    [silhouetteGroup?.groupName || 'Silhouette']: form.silhouette,
+  }), [form.gender, form.fabric_platform, form.silhouette, genderGroup, fabricGroup, silhouetteGroup])
+
+  // Live preview from the builder. Sequence segments render as 'AA'.
   const codePreview = useMemo(() => {
-    const selections = {
-      gender:      form.gender,
-      fabric:      form.fabric_platform,
-      silhouette:  form.silhouette,
-    }
-    const { ok, prefix, missing } = composeStyleCodeSegments(selections, codeRules)
-    return { ok, text: ok ? `${prefix}AA` : `${prefix}??`, missing }
-  }, [form.gender, form.fabric_platform, form.silhouette, codeRules])
+    const { ok, preview, missing } = composeStyleCodeFromBuilder(codeSelections, builderGroups)
+    return { ok, text: preview, missing }
+  }, [codeSelections, builderGroups])
 
   useEffect(() => {
     if (!editId) return
@@ -208,9 +216,7 @@ function NewStyleInner() {
       let nextCode = form.style_code
       if (!nextCode) {
         try {
-          nextCode = await generateNextStyleCode({
-            gender, fabric: fabric_platform, silhouette,
-          })
+          nextCode = await generateNextStyleCode(codeSelections)
         } catch (err) {
           toast(err.message, 'error')
           setSaving(false); return
@@ -362,7 +368,9 @@ function NewStyleInner() {
                   <label className="form-label">Gender <span className="req">*</span></label>
                   <select className="form-select" value={form.gender} onChange={e => { set('gender', e.target.value); set('category', '') }}>
                     <option value="">Select…</option>
-                    {codeRulesOptions(codeRules.gender, form.gender, ['Women','Men','Unisex']).map(o => <option key={o}>{o}</option>)}
+                    {builderOptions(genderGroup, form.gender, ['Women','Men','Unisex']).map(o => (
+                      <option key={o.value} value={o.value}>{o.value}{o.code ? ` (${o.code})` : ''}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -378,16 +386,16 @@ function NewStyleInner() {
                   <label className="form-label">Fabric <span className="req">*</span></label>
                   <select className="form-select" value={form.fabric_platform} onChange={e => set('fabric_platform', e.target.value)}>
                     <option value="">Select…</option>
-                    {fabricOptions(codeRules.fabric, form.fabric_platform).map(o => (
-                      <option key={o.name} value={o.name}>{o.name}{o.code ? ` (${o.code})` : ''}</option>
+                    {builderOptions(fabricGroup, form.fabric_platform, []).map(o => (
+                      <option key={o.value} value={o.value}>{o.value}{o.code ? ` (${o.code})` : ''}</option>
                     ))}
                   </select>
                   {selectedFabric?.composition && (
                     <div className="form-hint">Composition: {selectedFabric.composition}</div>
                   )}
-                  {!selectedFabric && (codeRules.fabric || []).length === 0 && (
+                  {!fabricGroup && (
                     <div className="form-hint" style={{ color: 'var(--yellow)' }}>
-                      No fabrics with codes yet — ask an admin to assign 2-letter codes in <strong>Style Code Settings</strong>.
+                      No <strong>Fabric</strong> group in the Style Code Builder — ask an admin to add fabric rows in <strong>Style Code Settings</strong>.
                     </div>
                   )}
                 </div>
@@ -757,7 +765,9 @@ function NewStyleInner() {
                   <label className="form-label">Silhouette <span className="req">*</span></label>
                   <select className="form-select" value={form.silhouette} onChange={e => set('silhouette', e.target.value)}>
                     <option value="">Select…</option>
-                    {codeRulesOptions(codeRules.silhouette, form.silhouette, []).map(o => <option key={o}>{o}</option>)}
+                    {builderOptions(silhouetteGroup, form.silhouette, []).map(o => (
+                      <option key={o.value} value={o.value}>{o.value}{o.code ? ` (${o.code})` : ''}</option>
+                    ))}
                   </select>
                   <div className="form-hint">To add a new silhouette, go to Admin → Style Code Settings.</div>
                 </div>
@@ -803,23 +813,19 @@ function NewStyleInner() {
   )
 }
 
-// Merge admin-managed rule values with a fallback list (defaults or the
-// currently-saved value on an existing style) so editing a legacy style
-// never blanks out a previously-valid choice.
-function codeRulesOptions(ruleRows, current, fallback) {
-  const ruleValues = (ruleRows || []).map(r => r.value)
-  const out = [...ruleValues]
+// Build the dropdown options for a variable builder group. Returns
+// [{ value, code }]. Includes a fallback list (used when the builder
+// has no group yet) and ensures the currently-saved value on an existing
+// style stays selectable even if it was later removed from the builder.
+function builderOptions(group, current, fallback) {
+  const out = (group?.rows || []).map(r => ({ value: r.field, code: r.code }))
   for (const f of (fallback || [])) {
-    if (!out.some(v => v.toLowerCase() === String(f).toLowerCase())) out.push(f)
+    if (!out.some(o => o.value.toLowerCase() === String(f).toLowerCase())) {
+      out.push({ value: f, code: null })
+    }
   }
-  if (current && !out.some(v => v.toLowerCase() === current.toLowerCase())) out.push(current)
-  return out
-}
-
-function fabricOptions(fabrics, current) {
-  const out = [...(fabrics || [])]
-  if (current && !out.some(f => f.name.toLowerCase() === current.toLowerCase())) {
-    out.push({ name: current, code: null })
+  if (current && !out.some(o => o.value.toLowerCase() === current.toLowerCase())) {
+    out.push({ value: current, code: null })
   }
   return out
 }
