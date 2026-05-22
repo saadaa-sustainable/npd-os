@@ -68,12 +68,21 @@ function NewStyleInner() {
   const [saving, setSaving]   = useState(false)
   const [codeRules, setCodeRules] = useState({ gender: [], fabric: [], silhouette: [] })
 
-  // Load admin-managed style code rules once.
+  // Load admin-managed style code rules once. Surface failures so the
+  // maker can tell the admin if the migration hasn't been run.
   useEffect(() => {
     Promise.all([getStyleCodeSettings(), getFabrics({ codedOnly: true })])
       .then(([settings, fabrics]) => setCodeRules({ ...settings, fabric: fabrics }))
-      .catch(() => {})
+      .catch(err => toast(`Could not load Style Code rules: ${err.message}`, 'error'))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Selected fabric's composition — shown as a read-only hint below the
+  // fabric dropdown so the maker can see at-a-glance what they picked.
+  const selectedFabric = useMemo(
+    () => (codeRules.fabric || []).find(f => f.name?.toLowerCase() === form.fabric_platform?.toLowerCase()),
+    [codeRules.fabric, form.fabric_platform],
+  )
 
   // Build the auto-preview from current selections. The 4-letter
   // semantic prefix is computed live; the 2-letter AA-ZZ suffix is
@@ -369,6 +378,14 @@ function NewStyleInner() {
                       <option key={o.name} value={o.name}>{o.name}{o.code ? ` (${o.code})` : ''}</option>
                     ))}
                   </select>
+                  {selectedFabric?.composition && (
+                    <div className="form-hint">Composition: {selectedFabric.composition}</div>
+                  )}
+                  {!selectedFabric && (codeRules.fabric || []).length === 0 && (
+                    <div className="form-hint" style={{ color: 'var(--yellow)' }}>
+                      No fabrics with codes yet — ask an admin to assign 2-letter codes in <strong>Style Code Settings</strong>.
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-group">

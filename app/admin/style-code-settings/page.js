@@ -223,9 +223,14 @@ function FiberCard({ rows, draft, setDraft, onAdd, onEdit, onDelete }) {
 }
 
 function FabricCard({ rows, draft, setDraft, onAdd, onEdit, onDelete }) {
+  const uncoded = rows.filter(r => !r.code).length
   return (
     <div className="card" style={{ padding: 0 }}>
-      <CardHeader title="Fabrics" hint="Actual brand fabric library. Only rows with a 2-letter code appear in New Style." count={rows.length} />
+      <CardHeader
+        title="Fabrics"
+        hint={`Actual brand fabric library. Only rows with a 2-letter code appear in New Style.${uncoded ? ` ${uncoded} fabric${uncoded === 1 ? '' : 's'} still need a code.` : ''}`}
+        count={rows.length}
+      />
       <div className="table-wrap">
         <table>
           <thead><tr><th>#</th><th>Fabric Name</th><th>Composition</th><th>Style Code</th><th>Sort</th><th></th></tr></thead>
